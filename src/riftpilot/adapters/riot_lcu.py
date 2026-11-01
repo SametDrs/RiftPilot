@@ -329,6 +329,8 @@ class RiotLcuAdapter(ILcuPort):
         """Perform hover or lock-in for a pick or ban action.
 
         Sends PATCH /lol-champ-select/v1/session/actions/{action_id}.
+        If completed=True, additionally calls POST /lol-champ-select/v1/session/actions/{action_id}/complete.
+        If completed=False, also updates /lol-champ-select/v1/session/my-selection pick intent.
 
         Returns:
             True if the action succeeded (HTTP 200/204), False otherwise.
@@ -336,16 +338,50 @@ class RiotLcuAdapter(ILcuPort):
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return False
 
-        payload = {
+        # Attempt to inspect current session to enrich payload and resolve action ID
+        target_action = None
+        try:
+            session = await self.get_champ_select_session()
+            if session is not None:
+                if action_id > 0:
+                    target_action = session.find_action(action_id)
+                if target_action is None:
+                    target_action = session.get_active_action()
+                    if target_action is not None:
+                        action_id = target_action.id
+        except Exception as exc:
+            logger.debug("Session inspection error in patch_champ_select_action: %s", exc)
+
+        payload: dict[str, Any] = {
             "championId": champion_id,
             "completed": completed,
         }
+        if target_action is not None:
+            payload["actorCellId"] = target_action.actor_cell_id
+            payload["type"] = target_action.type
+            payload["id"] = target_action.id
+            payload["isAllyAction"] = True
+            payload["isInProgress"] = True
 
+        success = False
         try:
             response = await self._client.patch(
                 f"/lol-champ-select/v1/session/actions/{action_id}",
                 json=payload,
             )
+            if response.status_code in (200, 204):
+                success = True
+            elif response.status_code in (401, 403):
+                logger.warning("LCU authentication failed during patch_champ_select_action: %d", response.status_code)
+                self._status = LcuConnectionStatus.AUTHENTICATION_FAILED
+                return False
+            else:
+                logger.warning(
+                    "LCU patch action %d failed with status %d: %s",
+                    action_id,
+                    response.status_code,
+                    response.text,
+                )
         except httpx.ConnectError as exc:
             logger.warning("LCU connection dropped during patch_champ_select_action: %s", exc)
             self._status = LcuConnectionStatus.DISCONNECTED
@@ -357,20 +393,30 @@ class RiotLcuAdapter(ILcuPort):
             logger.warning("Unexpected error during patch_champ_select_action: %s", exc)
             return False
 
-        if response.status_code in (200, 204):
-            return True
+        # If hover (completed=False), also send pick intent to my-selection
+        if not completed and champion_id > 0:
+            try:
+                intent_resp = await self._client.patch(
+                    "/lol-champ-select/v1/session/my-selection",
+                    json={"championPickIntent": champion_id},
+                )
+                if intent_resp.status_code in (200, 204):
+                    success = True
+            except Exception as exc:
+                logger.debug("Failed to set pick intent via my-selection: %s", exc)
 
-        if response.status_code in (401, 403):
-            logger.warning("LCU authentication failed during patch_champ_select_action: %d", response.status_code)
-            self._status = LcuConnectionStatus.AUTHENTICATION_FAILED
-            return False
+        # If lock-in (completed=True), also trigger dedicated action completion endpoint
+        if completed and action_id > 0:
+            try:
+                complete_resp = await self._client.post(
+                    f"/lol-champ-select/v1/session/actions/{action_id}/complete"
+                )
+                if complete_resp.status_code in (200, 204):
+                    success = True
+            except Exception as exc:
+                logger.debug("POST complete endpoint error: %s", exc)
 
-        logger.debug(
-            "patch_champ_select_action failed with status %d: %s",
-            response.status_code,
-            response.text,
-        )
-        return False
+        return success
 
     async def get_grid_champions(self) -> list[ChampionSummary]:
         """Return available/grid champions.

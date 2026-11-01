@@ -280,9 +280,7 @@ INDEX_HTML = """<!DOCTYPE html>
             line-height: 1.6;
         }
 
-        /* ====================================================================
-           Champion Select Mobile View
-           ==================================================================== */
+        /* Champion Select View */
         #champSelectView {
             width: 100%;
             display: flex;
@@ -834,21 +832,29 @@ INDEX_HTML = """<!DOCTYPE html>
             if (!data) return;
             currentChampSelect = data;
 
-            // 1. Update Timer
+            // 1. Update Timer with exact server seconds
             if (data.timer) {
-                const totalMs = data.timer.totalTimeInPhase || 30000;
-                const leftMs = data.timer.adjustedTimeLeftInPhase || data.timer.timeLeftInPhase || 30000;
-                timerTotalSeconds = Math.max(1, Math.round(totalMs / 1000));
-                timerSecondsRemaining = Math.max(0, Math.round(leftMs / 1000));
+                const totalSeconds = Number(data.timer.totalTimeInPhase || data.timer.total_time_in_phase || 30000) / 1000;
+                const secondsLeft = Number(
+                    data.timer.timeLeftSeconds !== undefined 
+                    ? data.timer.timeLeftSeconds 
+                    : (data.timer.adjustedTimeLeftInPhase || data.timer.adjusted_time_left_in_phase || data.timer.timeLeftInPhase || data.timer.time_left_in_phase || 30000) / 1000
+                );
+                
+                timerTotalSeconds = Math.max(1, Math.round(totalSeconds));
+                timerSecondsRemaining = Math.max(0, Math.floor(secondsLeft));
                 csTimerBadge.innerText = timerSecondsRemaining + 's';
+
+                const pct = Math.max(0, Math.min(100, (timerSecondsRemaining / timerTotalSeconds) * 100));
+                csProgressBar.style.width = pct + '%';
 
                 clearInterval(timerCountdownInterval);
                 timerCountdownInterval = setInterval(() => {
                     if (timerSecondsRemaining > 0) {
                         timerSecondsRemaining--;
                         csTimerBadge.innerText = timerSecondsRemaining + 's';
-                        const pct = Math.max(0, Math.min(100, (timerSecondsRemaining / timerTotalSeconds) * 100));
-                        csProgressBar.style.width = pct + '%';
+                        const curPct = Math.max(0, Math.min(100, (timerSecondsRemaining / timerTotalSeconds) * 100));
+                        csProgressBar.style.width = curPct + '%';
                         if (timerSecondsRemaining <= 5) {
                             csProgressBar.style.background = 'var(--danger)';
                             csTimerBadge.style.color = 'var(--danger)';
@@ -861,13 +867,13 @@ INDEX_HTML = """<!DOCTYPE html>
             }
 
             // 2. Update Local Player Lane & Active Action
-            const localPlayer = data.localPlayer;
+            const localPlayer = data.localPlayer || data.local_player;
             if (localPlayer) {
                 const pos = (localPlayer.assignedPosition || localPlayer.assigned_position || '').toLowerCase();
                 csPositionBadge.innerText = POSITION_NAMES[pos] || 'KORİDOR';
             }
 
-            const activeAction = data.activeAction;
+            const activeAction = data.activeAction || data.active_action;
             if (activeAction) {
                 const isBan = (activeAction.type || '').toLowerCase() === 'ban';
                 csModeBadge.innerText = isBan ? 'YASAKLAMA' : 'SEÇİM';
@@ -879,16 +885,16 @@ INDEX_HTML = """<!DOCTYPE html>
             } else {
                 csModeBadge.innerText = 'BEKLENİYOR';
                 csModeBadge.className = 'cs-badge pos';
-                csLockBtn.disabled = true;
-                csLockBtn.innerText = 'SIRA BEKLENİYOR';
+                csLockBtn.disabled = (selectedChampId <= 0);
+                csLockBtn.innerText = 'KİLİTLE';
                 csLockBtn.className = 'cs-btn-lock';
             }
 
             // 3. Render Team Rosters
-            renderTeamRoster(myTeamList, data.myTeam || [], data.localPlayerCellId);
+            renderTeamRoster(myTeamList, data.myTeam || [], data.localPlayerCellId ?? data.local_player_cell_id);
             renderTeamRoster(theirTeamList, data.theirTeam || [], -1);
 
-            // 4. Update Champion Grid (gray out banned champions)
+            // 4. Update Champion Grid
             renderChampGrid();
         }
 
@@ -959,18 +965,21 @@ INDEX_HTML = """<!DOCTYPE html>
             csPreviewImg.src = getChampionIconUrl(id);
             csPreviewImg.style.display = 'block';
 
-            // Send hover intent to LCU if active action exists
-            if (currentChampSelect && currentChampSelect.activeAction) {
-                csLockBtn.disabled = false;
-                if (socket && socket.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({
-                        type: 'CHAMP_SELECT_ACTION',
-                        token: sessionToken,
-                        actionId: currentChampSelect.activeAction.id,
-                        championId: id,
-                        completed: false
-                    }));
-                }
+            // Enable lock button immediately
+            csLockBtn.disabled = false;
+
+            // Resolve action ID if available
+            const act = (currentChampSelect && (currentChampSelect.activeAction || currentChampSelect.active_action));
+            const actionId = act ? act.id : 0;
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'CHAMP_SELECT_ACTION',
+                    token: sessionToken,
+                    actionId: actionId,
+                    championId: id,
+                    completed: false
+                }));
             }
 
             renderChampGrid();
@@ -981,20 +990,22 @@ INDEX_HTML = """<!DOCTYPE html>
         });
 
         csLockBtn.addEventListener('click', () => {
-            if (csLockBtn.disabled || !currentChampSelect || !currentChampSelect.activeAction || selectedChampId <= 0) {
+            if (csLockBtn.disabled || selectedChampId <= 0) {
                 return;
             }
+
+            const act = (currentChampSelect && (currentChampSelect.activeAction || currentChampSelect.active_action));
+            const actionId = act ? act.id : 0;
 
             if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({
                     type: 'CHAMP_SELECT_ACTION',
                     token: sessionToken,
-                    actionId: currentChampSelect.activeAction.id,
+                    actionId: actionId,
                     championId: selectedChampId,
                     completed: true
                 }));
-                csLockBtn.innerText = 'KİLİTLENDİ ✓';
-                csLockBtn.disabled = true;
+                csLockBtn.innerText = 'GÖNDERİLİYOR...';
             }
         });
 
@@ -1176,7 +1187,7 @@ class PairRequest(BaseModel):
 class ChampSelectActionRequest(BaseModel):
     """Payload schema for performing remote champion select actions."""
 
-    actionId: int = Field(..., description="Action ID to hover or lock in")
+    actionId: int = Field(default=0, description="Action ID to hover or lock in (0 to auto-resolve)")
     championId: int = Field(..., description="Champion ID to select")
     completed: bool = Field(default=True, description="True to lock in, False to hover")
 
@@ -1187,7 +1198,7 @@ def create_app(
     lcu_adapter: ILcuPort | None = None,
     ui_bridge: Any = None,
     enable_monitor: bool = True,
-    poll_interval: float = 1.5,
+    poll_interval: float = 1.0,
 ) -> FastAPI:
     """Factory creating and configuring the FastAPI Web Hub application.
 
@@ -1262,6 +1273,7 @@ def create_app(
         last_status: LcuConnectionStatus | None = None
 
         while True:
+            sleep_duration = poll_interval
             try:
                 if lcu_adapter is not None:
                     status = await lcu_adapter.get_connection_status()
@@ -1303,6 +1315,16 @@ def create_app(
                                     ui_bridge.notify_phase_change(phase)
                                 except Exception as exc:
                                     logger.debug("Bridge phase notify error: %s", exc)
+
+                        # High-frequency synchronization during ChampSelect
+                        if phase_str == "ChampSelect":
+                            sleep_duration = 0.5
+                            try:
+                                cs = await lcu_adapter.get_champ_select_session()
+                                if cs is not None:
+                                    await broadcast_champ_select(cs)
+                            except Exception as exc:
+                                logger.debug("Champ select monitor query error: %s", exc)
                     else:
                         if last_phase is not None and last_phase != "None":
                             last_phase = "None"
@@ -1319,7 +1341,7 @@ def create_app(
                 logger.debug("LCU monitor loop exception: %s", exc)
 
             try:
-                await asyncio.sleep(poll_interval)
+                await asyncio.sleep(sleep_duration)
             except asyncio.CancelledError:
                 break
 
@@ -1410,12 +1432,21 @@ def create_app(
         """Hover or lock-in a pick or ban action."""
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+
+        action_id = payload.actionId
+        if action_id <= 0:
+            cs = await lcu_adapter.get_champ_select_session()
+            if cs is not None:
+                act = cs.get_active_action()
+                if act is not None:
+                    action_id = act.id
+
         success = await lcu_adapter.patch_champ_select_action(
-            action_id=payload.actionId,
+            action_id=action_id,
             champion_id=payload.championId,
             completed=payload.completed,
         )
-        return {"success": bool(success)}
+        return {"success": bool(success), "actionId": action_id}
 
     # =========================================================================
     # WebSocket Route
@@ -1551,12 +1582,25 @@ def create_app(
                     champion_id = int(data.get("championId", 0))
                     completed = bool(data.get("completed", True))
                     success = False
-                    if lcu_adapter is not None and action_id > 0:
+
+                    if lcu_adapter is not None:
+                        # Auto-resolve action ID if 0 or not provided
+                        if action_id <= 0:
+                            try:
+                                cs = await lcu_adapter.get_champ_select_session()
+                                if cs is not None:
+                                    act = cs.get_active_action()
+                                    if act is not None:
+                                        action_id = act.id
+                            except Exception as exc:
+                                logger.debug("Action auto-resolve error: %s", exc)
+
                         success = await lcu_adapter.patch_champ_select_action(
                             action_id=action_id,
                             champion_id=champion_id,
                             completed=completed,
                         )
+
                     await websocket.send_json(
                         {
                             "type": "ACTION_RESULT",
