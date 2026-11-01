@@ -20,6 +20,7 @@ import websockets
 import websockets.exceptions
 
 from riftpilot.adapters.lcu_discovery import LcuCredentials
+from riftpilot.core.champ_select import ChampSelectSession
 from riftpilot.core.lcu_port import GameflowPhase
 
 logger = logging.getLogger("RiftPilot.LcuStream")
@@ -101,6 +102,9 @@ class LcuEventStream:
         self._callbacks: list[Callable[[GameflowPhase], Any]] = []
         if on_phase_change is not None:
             self._callbacks.append(on_phase_change)
+        self._champ_select_callbacks: list[
+            Callable[[ChampSelectSession | None], Any]
+        ] = []
         self._is_connected: bool = False
         self._is_running: bool = False
         self._ws: Any = None
@@ -133,6 +137,26 @@ class LcuEventStream:
         """
         if callback in self._callbacks:
             self._callbacks.remove(callback)
+            return True
+        return False
+
+    def add_champ_select_callback(
+        self, callback: Callable[[ChampSelectSession | None], Any]
+    ) -> None:
+        """Register a callback for champion select session state updates."""
+        if callback not in self._champ_select_callbacks:
+            self._champ_select_callbacks.append(callback)
+
+    def remove_champ_select_callback(
+        self, callback: Callable[[ChampSelectSession | None], Any]
+    ) -> bool:
+        """Unregister an existing champion select session callback.
+
+        Returns:
+            True if the callback was registered and removed, False otherwise.
+        """
+        if callback in self._champ_select_callbacks:
+            self._champ_select_callbacks.remove(callback)
             return True
         return False
 
@@ -178,6 +202,12 @@ class LcuEventStream:
                 "OnJsonApiEvent_lol-gameflow_v1_gameflow-phase",
             ])
             await self._ws.send(subscribe_msg)
+
+            subscribe_champ_select_msg = json.dumps([
+                5,
+                "OnJsonApiEvent_lol-champ-select_v1_session",
+            ])
+            await self._ws.send(subscribe_champ_select_msg)
         except Exception as exc:
             logger.warning("Failed to send subscription handshake: %s", exc)
             await self.stop()
@@ -212,6 +242,12 @@ class LcuEventStream:
                     except ValueError:
                         phase = GameflowPhase.NONE
                     await self._dispatch_phase(phase)
+                elif uri == "/lol-champ-select/v1/session":
+                    if isinstance(data, dict):
+                        session = ChampSelectSession.from_lcu_dict(data)
+                    else:
+                        session = None
+                    await self._dispatch_champ_select(session)
 
         self._is_connected = False
         self._is_running = False
@@ -225,6 +261,18 @@ class LcuEventStream:
                     await res
             except Exception as exc:
                 logger.warning("Error in phase callback: %s", exc)
+
+    async def _dispatch_champ_select(
+        self, session: ChampSelectSession | None
+    ) -> None:
+        """Dispatch a champ select session update to all registered callbacks."""
+        for cb in list(self._champ_select_callbacks):
+            try:
+                res = cb(session)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as exc:
+                logger.warning("Error in champ select stream callback: %s", exc)
 
     async def stop(self) -> None:
         """Gracefully stop listener task and close WebSocket connection."""

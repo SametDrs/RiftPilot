@@ -17,6 +17,7 @@ import httpx
 
 from riftpilot.adapters.lcu_discovery import LcuCredentials, LcuDiscoverer
 from riftpilot.adapters.lcu_stream import LcuEventStream
+from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
 from riftpilot.core.lcu_port import (
     GameflowPhase,
     ILcuPort,
@@ -52,6 +53,9 @@ class RiotLcuAdapter(ILcuPort):
         self._client: httpx.AsyncClient | None = None
         self._stream: LcuEventStream | None = None
         self._subscribers: list[Callable[[GameflowPhase], Any]] = []
+        self._champ_select_subscribers: list[
+            Callable[[ChampSelectSession | None], Any]
+        ] = []
 
         if credentials is not None:
             self._set_connected(credentials)
@@ -101,6 +105,7 @@ class RiotLcuAdapter(ILcuPort):
             credentials=credentials,
             on_phase_change=self._on_stream_phase_change,
         )
+        self._stream.add_champ_select_callback(self._on_stream_champ_select_change)
 
     @property
     def credentials(self) -> LcuCredentials | None:
@@ -121,6 +126,18 @@ class RiotLcuAdapter(ILcuPort):
                     await res
             except Exception as exc:
                 logger.warning("Error in phase subscriber: %s", exc)
+
+    async def _on_stream_champ_select_change(
+        self, session: ChampSelectSession | None
+    ) -> None:
+        """Internal callback invoked by LcuEventStream when champ select session updates."""
+        for subscriber in list(self._champ_select_subscribers):
+            try:
+                res = subscriber(session)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as exc:
+                logger.warning("Error in champ select subscriber: %s", exc)
 
     async def start_stream(self) -> bool:
         """Start the real-time WebSocket event stream if credentials are configured.
@@ -260,6 +277,160 @@ class RiotLcuAdapter(ILcuPort):
         """
         if callback in self._subscribers:
             self._subscribers.remove(callback)
+            return True
+        return False
+
+    # ========================================================================
+    # ILcuPort Implementation — Champion Select
+    # ========================================================================
+
+    async def get_champ_select_session(self) -> ChampSelectSession | None:
+        """Return current champion select session, or None if inactive."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return None
+
+        try:
+            response = await self._client.get("/lol-champ-select/v1/session")
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            logger.warning("LCU connection failed during get_champ_select_session: %s", exc)
+            self._status = LcuConnectionStatus.DISCONNECTED
+            return None
+        except Exception as exc:
+            logger.warning("Unexpected error during get_champ_select_session: %s", exc)
+            return None
+
+        if response.status_code in (401, 403):
+            logger.warning("LCU authentication failed (status %d)", response.status_code)
+            self._status = LcuConnectionStatus.AUTHENTICATION_FAILED
+            return None
+
+        if response.status_code == 404:
+            return None
+
+        if response.status_code != 200:
+            logger.debug("LCU returned non-200 status %d for champ select session", response.status_code)
+            return None
+
+        try:
+            data = response.json()
+            if isinstance(data, dict):
+                return ChampSelectSession.from_lcu_dict(data)
+        except Exception as exc:
+            logger.debug("Failed to parse champ select session response: %s", exc)
+
+        return None
+
+    async def patch_champ_select_action(
+        self,
+        action_id: int,
+        champion_id: int,
+        completed: bool = True,
+    ) -> bool:
+        """Perform hover or lock-in for a pick or ban action.
+
+        Sends PATCH /lol-champ-select/v1/session/actions/{action_id}.
+
+        Returns:
+            True if the action succeeded (HTTP 200/204), False otherwise.
+        """
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+
+        payload = {
+            "championId": champion_id,
+            "completed": completed,
+        }
+
+        try:
+            response = await self._client.patch(
+                f"/lol-champ-select/v1/session/actions/{action_id}",
+                json=payload,
+            )
+        except httpx.ConnectError as exc:
+            logger.warning("LCU connection dropped during patch_champ_select_action: %s", exc)
+            self._status = LcuConnectionStatus.DISCONNECTED
+            return False
+        except httpx.TimeoutException as exc:
+            logger.warning("LCU request timed out during patch_champ_select_action: %s", exc)
+            return False
+        except Exception as exc:
+            logger.warning("Unexpected error during patch_champ_select_action: %s", exc)
+            return False
+
+        if response.status_code in (200, 204):
+            return True
+
+        if response.status_code in (401, 403):
+            logger.warning("LCU authentication failed during patch_champ_select_action: %d", response.status_code)
+            self._status = LcuConnectionStatus.AUTHENTICATION_FAILED
+            return False
+
+        logger.debug(
+            "patch_champ_select_action failed with status %d: %s",
+            response.status_code,
+            response.text,
+        )
+        return False
+
+    async def get_grid_champions(self) -> list[ChampionSummary]:
+        """Return available/grid champions.
+
+        Sends GET /lol-champ-select/v1/all-grid-champions.
+
+        Returns:
+            List of ChampionSummary models, or empty list on failure.
+        """
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return []
+
+        try:
+            response = await self._client.get("/lol-champ-select/v1/all-grid-champions")
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            logger.warning("LCU connection failed during get_grid_champions: %s", exc)
+            self._status = LcuConnectionStatus.DISCONNECTED
+            return []
+        except Exception as exc:
+            logger.warning("Unexpected error during get_grid_champions: %s", exc)
+            return []
+
+        if response.status_code in (401, 403):
+            logger.warning("LCU authentication failed (status %d)", response.status_code)
+            self._status = LcuConnectionStatus.AUTHENTICATION_FAILED
+            return []
+
+        if response.status_code != 200:
+            return []
+
+        try:
+            data = response.json()
+            if isinstance(data, list):
+                return [
+                    ChampionSummary.from_lcu_dict(item)
+                    for item in data
+                    if isinstance(item, dict)
+                ]
+        except Exception as exc:
+            logger.debug("Failed to parse all-grid-champions response: %s", exc)
+
+        return []
+
+    def subscribe_champ_select(
+        self, callback: Callable[[ChampSelectSession | None], Any]
+    ) -> None:
+        """Register a callback for champion select session state updates."""
+        if callback not in self._champ_select_subscribers:
+            self._champ_select_subscribers.append(callback)
+
+    def unsubscribe_champ_select(
+        self, callback: Callable[[ChampSelectSession | None], Any]
+    ) -> bool:
+        """Unregister an existing champion select session callback.
+
+        Returns:
+            True if the callback was registered and removed, False otherwise.
+        """
+        if callback in self._champ_select_subscribers:
+            self._champ_select_subscribers.remove(callback)
             return True
         return False
 

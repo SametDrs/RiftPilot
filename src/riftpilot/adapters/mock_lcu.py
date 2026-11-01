@@ -1,8 +1,10 @@
 """RiftPilot Adapters — Mock LCU Adapter.
 
 Provides a deterministic test double for the League Client (LCU) outbound port.
-Enables offline and automated CI/CD testing of match acceptance, phase transitions,
-and error handling without requiring a live League of Legends client.
+Enforces Hexagonal Architecture (ADR-0003) contracts:
+- Simulates gameflow phase transitions and event subscriptions.
+- Simulates ready check flows.
+- Simulates champion select sessions, actions (pick/ban), and champion grids.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import inspect
 import logging
 from typing import Any, Callable
 
+from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
 from riftpilot.core.lcu_port import GameflowPhase, ILcuPort, LcuConnectionStatus
 
 logger = logging.getLogger("RiftPilot.MockLCU")
@@ -24,6 +27,9 @@ class MockLcuAdapter(ILcuPort):
         self._status = LcuConnectionStatus.DISCONNECTED
         self._phase = GameflowPhase.NONE
         self._subscribers: list[Callable[[GameflowPhase], Any]] = []
+        self._champ_select_subscribers: list[
+            Callable[[ChampSelectSession | None], Any]
+        ] = []
 
         # Ready check state attributes
         self.player_response: str = "None"
@@ -34,8 +40,12 @@ class MockLcuAdapter(ILcuPort):
             "timer": 0.0,
         }
 
+        # Champion select state attributes
+        self._champ_select_session: ChampSelectSession | None = None
+        self._grid_champions: list[ChampionSummary] = []
+
     # ========================================================================
-    # ILcuPort Implementation
+    # ILcuPort Implementation — Core Status & Phase
     # ========================================================================
 
     async def get_connection_status(self) -> LcuConnectionStatus:
@@ -88,6 +98,95 @@ class MockLcuAdapter(ILcuPort):
         return False
 
     # ========================================================================
+    # ILcuPort Implementation — Champion Select
+    # ========================================================================
+
+    async def get_champ_select_session(self) -> ChampSelectSession | None:
+        """Return current champion select session, or None if inactive."""
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return None
+        return self._champ_select_session
+
+    async def patch_champ_select_action(
+        self,
+        action_id: int,
+        champion_id: int,
+        completed: bool = True,
+    ) -> bool:
+        """Perform hover or lock-in for a pick or ban action."""
+        if self._status != LcuConnectionStatus.CONNECTED:
+            logger.warning("patch_champ_select_action failed: adapter disconnected.")
+            return False
+
+        if self._champ_select_session is None:
+            logger.warning("patch_champ_select_action failed: no active session.")
+            return False
+
+        # Find target action across all action groups
+        target_action = None
+        for group in self._champ_select_session.actions:
+            for action in group:
+                if action.id == action_id:
+                    target_action = action
+                    break
+            if target_action is not None:
+                break
+
+        if target_action is None:
+            logger.warning("patch_champ_select_action failed: action %s not found.", action_id)
+            return False
+
+        target_action.champion_id = champion_id
+        if completed:
+            target_action.completed = True
+            target_action.is_in_progress = False
+
+        # If action was a pick for local user, update player champion_id as well
+        local_player = self._champ_select_session.get_local_player()
+        if (
+            local_player
+            and target_action.actor_cell_id == local_player.cell_id
+            and target_action.is_pick()
+        ):
+            local_player.champion_id = champion_id
+
+        # Notify subscribers about session update
+        await self._dispatch_champ_select(self._champ_select_session)
+        return True
+
+    async def get_grid_champions(self) -> list[ChampionSummary]:
+        """Return available/grid champions."""
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return []
+        return list(self._grid_champions)
+
+    def subscribe_champ_select(
+        self, callback: Callable[[ChampSelectSession | None], Any]
+    ) -> None:
+        """Register a callback for champion select session state updates."""
+        if callback not in self._champ_select_subscribers:
+            self._champ_select_subscribers.append(callback)
+
+    def unsubscribe_champ_select(
+        self, callback: Callable[[ChampSelectSession | None], Any]
+    ) -> bool:
+        """Unregister a callback for champion select session updates."""
+        if callback in self._champ_select_subscribers:
+            self._champ_select_subscribers.remove(callback)
+            return True
+        return False
+
+    async def _dispatch_champ_select(self, session: ChampSelectSession | None) -> None:
+        """Dispatch session update to all registered champ select subscribers."""
+        for cb in list(self._champ_select_subscribers):
+            try:
+                res = cb(session)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as e:
+                logger.warning("Error in champ select subscriber: %s", e)
+
+    # ========================================================================
     # Test Simulation Helpers
     # ========================================================================
 
@@ -97,7 +196,7 @@ class MockLcuAdapter(ILcuPort):
         logger.info("Mock LCU connected.")
 
     async def simulate_disconnect(self) -> None:
-        """Transition mock adapter to DISCONNECTED state and reset phase/ready check."""
+        """Transition mock adapter to DISCONNECTED state and reset state."""
         self._status = LcuConnectionStatus.DISCONNECTED
         self._phase = GameflowPhase.NONE
         self.player_response = "None"
@@ -105,6 +204,8 @@ class MockLcuAdapter(ILcuPort):
         self.ready_check["playerResponse"] = "None"
         self.ready_check["state"] = "Invalid"
         self.ready_check["timer"] = 0.0
+        self._champ_select_session = None
+        await self._dispatch_champ_select(None)
         logger.info("Mock LCU disconnected.")
 
     async def simulate_phase_change(self, new_phase: GameflowPhase | str) -> None:
@@ -134,6 +235,19 @@ class MockLcuAdapter(ILcuPort):
             "timer": timer,
         }
         await self.simulate_phase_change(GameflowPhase.READY_CHECK)
+
+    async def simulate_champ_select_session(
+        self, session: ChampSelectSession | None
+    ) -> None:
+        """Simulate an active or ended champion select session."""
+        self._champ_select_session = session
+        if session is not None:
+            await self.simulate_phase_change(GameflowPhase.CHAMP_SELECT)
+        await self._dispatch_champ_select(session)
+
+    def set_grid_champions(self, champions: list[ChampionSummary]) -> None:
+        """Configure mock available grid champions."""
+        self._grid_champions = list(champions)
 
 
 __all__ = ["MockLcuAdapter"]

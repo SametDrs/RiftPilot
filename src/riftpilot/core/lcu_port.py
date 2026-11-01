@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
 
 
 class GameflowPhase(str, Enum):
@@ -78,6 +81,44 @@ class ILcuPort(ABC):
         self, callback: Callable[[GameflowPhase], Any]
     ) -> bool:
         """Unregister an existing phase change callback."""
+        ...
+
+    # ========================================================================
+    # Champion Select Contract
+    # ========================================================================
+
+    @abstractmethod
+    async def get_champ_select_session(self) -> ChampSelectSession | None:
+        """Return current champion select session state, or None if inactive."""
+        ...
+
+    @abstractmethod
+    async def patch_champ_select_action(
+        self,
+        action_id: int,
+        champion_id: int,
+        completed: bool = True,
+    ) -> bool:
+        """Perform hover or lock-in for a pick or ban action."""
+        ...
+
+    @abstractmethod
+    async def get_grid_champions(self) -> list[ChampionSummary]:
+        """Retrieve the list of selectable/bannable grid champions."""
+        ...
+
+    @abstractmethod
+    def subscribe_champ_select(
+        self, callback: Callable[[ChampSelectSession | None], Any]
+    ) -> None:
+        """Register a callback for champion select session state updates."""
+        ...
+
+    @abstractmethod
+    def unsubscribe_champ_select(
+        self, callback: Callable[[ChampSelectSession | None], Any]
+    ) -> bool:
+        """Unregister a callback for champion select session state updates."""
         ...
 
 
