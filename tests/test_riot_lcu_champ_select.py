@@ -270,3 +270,84 @@ async def test_stream_champ_select_event_dispatch_to_adapter_subscribers(
         assert adapter.unsubscribe_champ_select(on_cs) is False
 
         await adapter.close()
+
+
+@pytest.mark.asyncio
+async def test_patch_champ_select_action_triggers_complete_endpoint(
+    credentials: LcuCredentials,
+) -> None:
+    """When completed=True, adapter sends PATCH and then POST .../complete."""
+    calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(f"{request.method} {request.url.path}")
+        if request.url.path == "/lol-champ-select/v1/session":
+            return httpx.Response(200, json={"actions": [], "localPlayerCellId": 0})
+        if request.url.path == "/lol-champ-select/v1/session/actions/3":
+            return httpx.Response(204)
+        if request.url.path == "/lol-champ-select/v1/session/actions/3/complete":
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    adapter = RiotLcuAdapter(credentials=credentials, transport=MockTransport(handler))
+    success = await adapter.patch_champ_select_action(action_id=3, champion_id=103, completed=True)
+    assert success is True
+    assert "PATCH /lol-champ-select/v1/session/actions/3" in calls
+    assert "POST /lol-champ-select/v1/session/actions/3/complete" in calls
+
+
+@pytest.mark.asyncio
+async def test_patch_champ_select_hover_triggers_my_selection_intent(
+    credentials: LcuCredentials,
+) -> None:
+    """When completed=False, adapter updates pick intent via /my-selection."""
+    calls: list[str] = []
+    my_selection_payload: dict[str, Any] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(f"{request.method} {request.url.path}")
+        if request.url.path == "/lol-champ-select/v1/session":
+            return httpx.Response(200, json={"actions": [], "localPlayerCellId": 0})
+        if request.url.path == "/lol-champ-select/v1/session/actions/2":
+            return httpx.Response(204)
+        if request.url.path == "/lol-champ-select/v1/session/my-selection":
+            nonlocal my_selection_payload
+            my_selection_payload = json.loads(request.content.decode("utf-8"))
+            return httpx.Response(204)
+        return httpx.Response(404)
+
+    adapter = RiotLcuAdapter(credentials=credentials, transport=MockTransport(handler))
+    success = await adapter.patch_champ_select_action(action_id=2, champion_id=84, completed=False)
+    assert success is True
+    assert "PATCH /lol-champ-select/v1/session/actions/2" in calls
+    assert "PATCH /lol-champ-select/v1/session/my-selection" in calls
+    assert my_selection_payload == {"championPickIntent": 84}
+
+
+@pytest.mark.asyncio
+async def test_patch_champ_select_auto_resolves_action_id_when_zero(
+    credentials: LcuCredentials,
+) -> None:
+    """When action_id is 0, adapter resolves the active action ID from the session."""
+    session_data = {
+        "localPlayerCellId": 0,
+        "actions": [
+            [{"id": 7, "actorCellId": 0, "type": "ban", "completed": False, "isInProgress": True}]
+        ],
+    }
+    calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(f"{request.method} {request.url.path}")
+        if request.url.path == "/lol-champ-select/v1/session":
+            return httpx.Response(200, json=session_data)
+        if request.url.path == "/lol-champ-select/v1/session/actions/7":
+            return httpx.Response(204)
+        if request.url.path == "/lol-champ-select/v1/session/actions/7/complete":
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    adapter = RiotLcuAdapter(credentials=credentials, transport=MockTransport(handler))
+    success = await adapter.patch_champ_select_action(action_id=0, champion_id=51, completed=True)
+    assert success is True
+    assert "PATCH /lol-champ-select/v1/session/actions/7" in calls

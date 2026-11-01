@@ -3,8 +3,8 @@
 Outbound adapter maintaining a persistent WebSocket connection to the League Client Update (LCU)
 event stream over local WSS with self-signed SSL verification disabled.
 
-Implements real-time gameflow phase event streaming according to Hexagonal Architecture
-(ADR-0003) and Shift-Left security specifications (ADR-0004).
+Implements real-time gameflow phase and champion select event streaming according to
+Hexagonal Architecture (ADR-0003) and Shift-Left security specifications (ADR-0004).
 """
 
 from __future__ import annotations
@@ -197,6 +197,14 @@ class LcuEventStream:
 
         try:
             # Opcode 5: WAMP v1 SUBSCRIBE
+            # Subscribe to global OnJsonApiEvent so no event is ever dropped
+            subscribe_all_msg = json.dumps([
+                5,
+                "OnJsonApiEvent",
+            ])
+            await self._ws.send(subscribe_all_msg)
+
+            # Explicit topic subscriptions as complementary fallbacks
             subscribe_msg = json.dumps([
                 5,
                 "OnJsonApiEvent_lol-gameflow_v1_gameflow-phase",

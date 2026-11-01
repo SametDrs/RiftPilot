@@ -70,8 +70,20 @@ class ChampSelectAction:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize action to dictionary."""
-        return asdict(self)
+        """Serialize action to dictionary with both camelCase and snake_case."""
+        return {
+            "id": self.id,
+            "actorCellId": self.actor_cell_id,
+            "actor_cell_id": self.actor_cell_id,
+            "championId": self.champion_id,
+            "champion_id": self.champion_id,
+            "type": self.type,
+            "completed": self.completed,
+            "isInProgress": self.is_in_progress,
+            "is_in_progress": self.is_in_progress,
+            "pickTurn": self.pick_turn,
+            "pick_turn": self.pick_turn,
+        }
 
 
 @dataclass
@@ -102,8 +114,24 @@ class ChampSelectPlayer:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize player to dictionary."""
-        return asdict(self)
+        """Serialize player to dictionary with both camelCase and snake_case."""
+        return {
+            "cellId": self.cell_id,
+            "cell_id": self.cell_id,
+            "championId": self.champion_id,
+            "champion_id": self.champion_id,
+            "championPickIntent": self.champion_pick_intent,
+            "champion_pick_intent": self.champion_pick_intent,
+            "assignedPosition": self.assigned_position,
+            "assigned_position": self.assigned_position,
+            "spell1Id": self.spell1_id,
+            "spell1_id": self.spell1_id,
+            "spell2Id": self.spell2_id,
+            "spell2_id": self.spell2_id,
+            "summonerId": self.summoner_id,
+            "summoner_id": self.summoner_id,
+            "team": self.team,
+        }
 
 
 @dataclass
@@ -131,10 +159,19 @@ class ChampSelectTimer:
         return max(0.0, time_ms / 1000.0)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize timer to dictionary."""
-        res = asdict(self)
-        res["timeLeftSeconds"] = self.time_left_seconds()
-        return res
+        """Serialize timer to dictionary with both camelCase and snake_case."""
+        seconds = self.time_left_seconds()
+        return {
+            "phase": self.phase,
+            "timeLeftSeconds": seconds,
+            "time_left_seconds": seconds,
+            "timeLeftInPhase": self.time_left_in_phase,
+            "time_left_in_phase": self.time_left_in_phase,
+            "totalTimeInPhase": self.total_time_in_phase,
+            "total_time_in_phase": self.total_time_in_phase,
+            "adjustedTimeLeftInPhase": self.adjusted_time_left_in_phase,
+            "adjusted_time_left_in_phase": self.adjusted_time_left_in_phase,
+        }
 
 
 @dataclass
@@ -155,8 +192,15 @@ class ChampSelectBans:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize bans to dictionary."""
-        return asdict(self)
+        """Serialize bans to dictionary with both camelCase and snake_case."""
+        return {
+            "myTeamBans": list(self.my_team_bans),
+            "my_team_bans": list(self.my_team_bans),
+            "theirTeamBans": list(self.their_team_bans),
+            "their_team_bans": list(self.their_team_bans),
+            "numBans": self.num_bans,
+            "num_bans": self.num_bans,
+        }
 
 
 @dataclass
@@ -182,7 +226,14 @@ class ChampionSummary:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize champion summary to dictionary."""
-        return asdict(self)
+        return {
+            "id": self.id,
+            "name": self.name,
+            "roles": list(self.roles),
+            "squarePortraitPath": self.square_portrait_path,
+            "square_portrait_path": self.square_portrait_path,
+            "disabled": self.disabled,
+        }
 
 
 @dataclass
@@ -243,15 +294,24 @@ class ChampSelectSession:
                 return player
         return None
 
-    def get_active_action(self) -> ChampSelectAction | None:
-        """Find the currently active (in progress, not completed) action for the local user.
+    def find_action(self, action_id: int) -> ChampSelectAction | None:
+        """Find an action by unique action ID."""
+        for group in self.actions:
+            for action in group:
+                if action.id == action_id:
+                    return action
+        return None
 
-        Returns:
-            The active ChampSelectAction if it's the local user's turn, else None.
+    def get_active_action(self) -> ChampSelectAction | None:
+        """Find the currently active or pending action for the local user.
+
+        Priority 1: Action currently in progress for the local user (ban or pick).
+        Priority 2: The first uncompleted action for the local user (allows hovering before turn).
         """
         if self.local_player_cell_id < 0:
             return None
 
+        # Priority 1: In progress right now
         for group in self.actions:
             for action in group:
                 if (
@@ -260,6 +320,16 @@ class ChampSelectSession:
                     and not action.completed
                 ):
                     return action
+
+        # Priority 2: Uncompleted action for local user
+        for group in self.actions:
+            for action in group:
+                if (
+                    action.actor_cell_id == self.local_player_cell_id
+                    and not action.completed
+                ):
+                    return action
+
         return None
 
     def get_all_banned_ids(self) -> set[int]:
@@ -278,6 +348,7 @@ class ChampSelectSession:
 
         return {
             "localPlayerCellId": self.local_player_cell_id,
+            "local_player_cell_id": self.local_player_cell_id,
             "myTeam": [p.to_dict() for p in self.my_team],
             "theirTeam": [p.to_dict() for p in self.their_team],
             "actions": [[a.to_dict() for a in group] for group in self.actions],
@@ -285,7 +356,9 @@ class ChampSelectSession:
             "bans": self.bans.to_dict(),
             "isSpectating": self.is_spectating,
             "activeAction": active_action.to_dict() if active_action else None,
+            "active_action": active_action.to_dict() if active_action else None,
             "localPlayer": local_player.to_dict() if local_player else None,
+            "local_player": local_player.to_dict() if local_player else None,
             "allBannedIds": list(self.get_all_banned_ids()),
         }
 
