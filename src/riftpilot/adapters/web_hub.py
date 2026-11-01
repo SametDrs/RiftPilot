@@ -6,6 +6,8 @@ Provides the LAN HTTP and WebSocket server for mobile clients:
 - Establishes authenticated, zero-trust bidirectional WebSockets (`GET /ws`).
 - Broadcasts real-time LCU gameflow events and processes remote commands
   such as match acceptance (`ACCEPT_READY_CHECK`).
+- Provides Champion Select remote orchestration: live session updates,
+  champion grid search/filtering, hover, and one-tap lock-in / ban.
 - Runs background LCU auto-discovery, connection monitoring, and synchronization.
 """
 
@@ -23,6 +25,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
 from riftpilot.core.lcu_port import (
     GameflowPhase,
     ILcuPort,
@@ -48,6 +51,8 @@ INDEX_HTML = """<!DOCTYPE html>
             --gold-3: #785a28;
             --gold-4: #463714;
             --blue-accent: #0ac8b9;
+            --blue-team: #1a78c2;
+            --red-team: #c83232;
             --text-primary: #f0e6d2;
             --text-secondary: #a09b8c;
             --success: #00ff88;
@@ -72,16 +77,16 @@ INDEX_HTML = """<!DOCTYPE html>
             flex-direction: column;
             align-items: center;
             justify-content: space-between;
-            padding: 24px 16px;
+            padding: 16px 12px;
         }
 
         header {
             width: 100%;
-            max-width: 480px;
+            max-width: 500px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding-bottom: 16px;
+            padding-bottom: 12px;
             border-bottom: 1px solid var(--gold-4);
         }
 
@@ -98,83 +103,93 @@ INDEX_HTML = """<!DOCTYPE html>
         .brand-title {
             font-size: 20px;
             font-weight: 700;
-            color: var(--gold-1);
             letter-spacing: 1px;
-            text-transform: uppercase;
+            background: linear-gradient(180deg, var(--gold-1) 0%, var(--gold-2) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .lcu-subbadge {
-            font-size: 10px;
+            font-size: 11px;
             color: var(--text-secondary);
-            letter-spacing: 0.5px;
             margin-top: 2px;
-            transition: color 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
 
         .lcu-subbadge.connected {
-            color: var(--blue-accent);
-            font-weight: 600;
+            color: var(--success);
         }
 
         .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
             font-size: 11px;
             font-weight: 600;
             padding: 4px 10px;
             border-radius: 20px;
-            border: 1px solid var(--gold-3);
-            background: rgba(120, 90, 40, 0.2);
-            color: var(--gold-2);
-            display: flex;
-            align-items: center;
-            gap: 6px;
+            background: rgba(10, 20, 40, 0.8);
+            border: 1px solid var(--gold-4);
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-badge.connected .status-dot {
+            background: var(--blue-accent);
+            box-shadow: 0 0 8px var(--blue-accent);
         }
 
         .status-badge.connected {
             border-color: var(--blue-accent);
-            background: rgba(10, 200, 185, 0.15);
-            color: var(--blue-accent);
+            color: var(--gold-1);
         }
 
-        .status-badge.error {
-            border-color: var(--danger);
-            background: rgba(232, 64, 87, 0.15);
-            color: var(--danger);
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background-color: currentColor;
+        .status-badge.error .status-dot {
+            background: var(--danger);
         }
 
         main {
             width: 100%;
-            max-width: 480px;
+            max-width: 500px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            margin: auto 0;
+            padding: 10px 0;
+        }
+
+        /* Standard Gameflow View */
+        #mainView {
+            width: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 20px;
-            margin: auto 0;
         }
 
         .phase-card {
             width: 100%;
             background: var(--card-bg);
-            border: 1px solid var(--gold-3);
+            border: 1px solid var(--gold-4);
             border-radius: var(--radius);
-            padding: 24px 16px;
+            padding: 24px;
             text-align: center;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-            position: relative;
-            overflow: hidden;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s ease;
         }
 
         .phase-card.ready-check-active {
             border-color: var(--gold-2);
-            background: radial-gradient(circle at center, #1e293b 0%, #111a2e 100%);
-            box-shadow: 0 0 30px rgba(200, 170, 110, 0.35);
+            box-shadow: 0 0 30px rgba(200, 170, 110, 0.4);
             animation: pulse-border 1.5s infinite alternate;
         }
 
@@ -184,18 +199,17 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .phase-label {
-            font-size: 12px;
+            font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: var(--text-secondary);
+            letter-spacing: 2px;
+            color: var(--gold-2);
             margin-bottom: 8px;
         }
 
         .phase-value {
-            font-size: 26px;
-            font-weight: 800;
+            font-size: 24px;
+            font-weight: 700;
             color: var(--gold-1);
-            letter-spacing: 0.5px;
         }
 
         .action-area {
@@ -266,13 +280,320 @@ INDEX_HTML = """<!DOCTYPE html>
             line-height: 1.6;
         }
 
+        /* ====================================================================
+           Champion Select Mobile View
+           ==================================================================== */
+        #champSelectView {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .cs-top-bar {
+            width: 100%;
+            background: var(--card-bg);
+            border: 1px solid var(--gold-4);
+            border-radius: var(--radius);
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .cs-badges {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .cs-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .cs-badge.pick {
+            background: rgba(10, 200, 185, 0.2);
+            border: 1px solid var(--blue-accent);
+            color: var(--blue-accent);
+        }
+
+        .cs-badge.ban {
+            background: rgba(232, 64, 87, 0.2);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+        }
+
+        .cs-badge.pos {
+            background: rgba(200, 170, 110, 0.15);
+            border: 1px solid var(--gold-3);
+            color: var(--gold-2);
+        }
+
+        .cs-timer-badge {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--gold-1);
+            min-width: 44px;
+            text-align: right;
+        }
+
+        .cs-progress-container {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: -6px;
+        }
+
+        .cs-progress-bar {
+            height: 100%;
+            width: 100%;
+            background: var(--gold-2);
+            transition: width 0.3s linear;
+        }
+
+        .teams-summary {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .team-box {
+            background: rgba(10, 20, 40, 0.6);
+            border: 1px solid var(--gold-4);
+            border-radius: 8px;
+            padding: 6px 8px;
+            font-size: 11px;
+        }
+
+        .team-box.blue {
+            border-left: 3px solid var(--blue-team);
+        }
+
+        .team-box.red {
+            border-left: 3px solid var(--red-team);
+        }
+
+        .team-header-title {
+            font-weight: 700;
+            margin-bottom: 4px;
+            color: var(--gold-2);
+            text-transform: uppercase;
+            font-size: 10px;
+        }
+
+        .member-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .member-row:last-child {
+            border-bottom: none;
+        }
+
+        .member-pos {
+            font-size: 9px;
+            color: var(--text-secondary);
+            width: 16px;
+            text-transform: uppercase;
+        }
+
+        .member-champ {
+            font-weight: 600;
+            color: var(--gold-1);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+
+        .member-row.is-me {
+            color: var(--blue-accent);
+            font-weight: bold;
+        }
+
+        .member-row.is-me .member-champ {
+            color: var(--blue-accent);
+        }
+
+        .champ-search-box {
+            width: 100%;
+            position: relative;
+        }
+
+        .champ-search-input {
+            width: 100%;
+            background: var(--card-bg);
+            border: 1px solid var(--gold-3);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .champ-search-input:focus {
+            border-color: var(--blue-accent);
+        }
+
+        .champ-grid-container {
+            width: 100%;
+            max-height: 230px;
+            overflow-y: auto;
+            border: 1px solid var(--gold-4);
+            border-radius: var(--radius);
+            background: rgba(10, 20, 40, 0.7);
+            padding: 8px;
+        }
+
+        .champ-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+            gap: 6px;
+        }
+
+        .champ-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(17, 26, 46, 0.9);
+            border: 1px solid var(--gold-4);
+            border-radius: 6px;
+            padding: 4px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .champ-item:active {
+            transform: scale(0.95);
+        }
+
+        .champ-item.selected {
+            border-color: var(--gold-1);
+            box-shadow: 0 0 10px rgba(240, 230, 210, 0.8);
+            background: rgba(30, 58, 95, 0.8);
+        }
+
+        .champ-item.banned {
+            opacity: 0.3;
+            filter: grayscale(1);
+            pointer-events: none;
+        }
+
+        .champ-img {
+            width: 44px;
+            height: 44px;
+            border-radius: 4px;
+            object-fit: cover;
+            background: #111a2e;
+        }
+
+        .champ-name {
+            font-size: 10px;
+            color: var(--text-primary);
+            text-align: center;
+            margin-top: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            width: 100%;
+        }
+
+        .cs-action-panel {
+            width: 100%;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: var(--card-bg);
+            border: 1px solid var(--gold-3);
+            border-radius: var(--radius);
+            padding: 8px 12px;
+        }
+
+        .cs-selected-preview {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .cs-preview-img {
+            width: 38px;
+            height: 38px;
+            border-radius: 6px;
+            border: 1px solid var(--gold-3);
+            object-fit: cover;
+            background: #111a2e;
+        }
+
+        .cs-preview-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--gold-1);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .cs-btn-lock {
+            height: 48px;
+            padding: 0 20px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border: 1px solid var(--gold-2);
+            background: linear-gradient(180deg, #c8aa6e 0%, #785a28 100%);
+            color: #091428;
+            cursor: pointer;
+            outline: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            transition: all 0.2s;
+        }
+
+        .cs-btn-lock.ban {
+            background: linear-gradient(180deg, #e84057 0%, #8a1f2e 100%);
+            border-color: #ff7888;
+            color: white;
+            box-shadow: 0 0 15px rgba(232, 64, 87, 0.5);
+        }
+
+        .cs-btn-lock.pick {
+            background: linear-gradient(180deg, #0ac8b9 0%, #00605a 100%);
+            border-color: #6efff4;
+            color: white;
+            box-shadow: 0 0 15px rgba(10, 200, 185, 0.5);
+        }
+
+        .cs-btn-lock:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background: #1e3a5f;
+            border-color: var(--gold-4);
+            color: var(--text-secondary);
+            box-shadow: none;
+        }
+
         footer {
             width: 100%;
-            max-width: 480px;
+            max-width: 500px;
             text-align: center;
             font-size: 11px;
             color: var(--gold-4);
-            padding-top: 16px;
+            padding-top: 10px;
         }
     </style>
 </head>
@@ -292,17 +613,61 @@ INDEX_HTML = """<!DOCTYPE html>
     </header>
 
     <main>
-        <div id="phaseCard" class="phase-card">
-            <div class="phase-label">Aktif Oyun Durumu</div>
-            <div id="phaseDisplay" class="phase-value">İstemci Bekleniyor</div>
+        <!-- Standard Gameflow View -->
+        <div id="mainView">
+            <div id="phaseCard" class="phase-card">
+                <div class="phase-label">Aktif Oyun Durumu</div>
+                <div id="phaseDisplay" class="phase-value">İstemci Bekleniyor</div>
+            </div>
+
+            <div class="action-area">
+                <button id="acceptBtn" class="btn-accept" disabled>
+                    KABUL ET
+                </button>
+                <div id="infoMessage" class="info-card">
+                    League of Legends eşleşmesi bulunduğunda buton parlayacaktır.
+                </div>
+            </div>
         </div>
 
-        <div class="action-area">
-            <button id="acceptBtn" class="btn-accept" disabled>
-                KABUL ET
-            </button>
-            <div id="infoMessage" class="info-card">
-                League of Legends eşleşmesi bulunduğunda buton parlayacaktır.
+        <!-- Champion Select View -->
+        <div id="champSelectView" style="display: none;">
+            <div class="cs-top-bar">
+                <div class="cs-badges">
+                    <span id="csModeBadge" class="cs-badge pick">SEÇİM</span>
+                    <span id="csPositionBadge" class="cs-badge pos">ORTA</span>
+                </div>
+                <div id="csTimerBadge" class="cs-timer-badge">30s</div>
+            </div>
+            <div class="cs-progress-container">
+                <div id="csProgressBar" class="cs-progress-bar"></div>
+            </div>
+
+            <div class="teams-summary">
+                <div class="team-box blue">
+                    <div class="team-header-title">Mavi Takım (Dost)</div>
+                    <div id="myTeamList"></div>
+                </div>
+                <div class="team-box red">
+                    <div class="team-header-title">Kırmızı Takım (Rakip)</div>
+                    <div id="theirTeamList"></div>
+                </div>
+            </div>
+
+            <div class="champ-search-box">
+                <input type="text" id="champSearchInput" class="champ-search-input" placeholder="🔍 Şampiyon ara (Ahri, Yasuo, Lee Sin)...">
+            </div>
+
+            <div class="champ-grid-container">
+                <div id="champGrid" class="champ-grid"></div>
+            </div>
+
+            <div class="cs-action-panel">
+                <div class="cs-selected-preview">
+                    <img id="csPreviewImg" class="cs-preview-img" src="" alt="" style="display:none;">
+                    <div id="csPreviewName" class="cs-preview-name">Şampiyon Seçin</div>
+                </div>
+                <button id="csLockBtn" class="cs-btn-lock" disabled>KİLİTLE</button>
             </div>
         </div>
     </main>
@@ -315,13 +680,50 @@ INDEX_HTML = """<!DOCTYPE html>
         const statusBadge = document.getElementById('statusBadge');
         const statusText = document.getElementById('statusText');
         const lcuBadge = document.getElementById('lcuBadge');
+        const mainView = document.getElementById('mainView');
         const phaseCard = document.getElementById('phaseCard');
         const phaseDisplay = document.getElementById('phaseDisplay');
         const acceptBtn = document.getElementById('acceptBtn');
         const infoMessage = document.getElementById('infoMessage');
 
+        // Champ select DOM references
+        const champSelectView = document.getElementById('champSelectView');
+        const csModeBadge = document.getElementById('csModeBadge');
+        const csPositionBadge = document.getElementById('csPositionBadge');
+        const csTimerBadge = document.getElementById('csTimerBadge');
+        const csProgressBar = document.getElementById('csProgressBar');
+        const myTeamList = document.getElementById('myTeamList');
+        const theirTeamList = document.getElementById('theirTeamList');
+        const champSearchInput = document.getElementById('champSearchInput');
+        const champGrid = document.getElementById('champGrid');
+        const csPreviewImg = document.getElementById('csPreviewImg');
+        const csPreviewName = document.getElementById('csPreviewName');
+        const csLockBtn = document.getElementById('csLockBtn');
+
         let socket = null;
         let sessionToken = localStorage.getItem('riftpilot_session_token');
+
+        // State variables
+        let currentChampSelect = null;
+        let gridChampions = [];
+        let selectedChampId = 0;
+        let selectedChampName = '';
+        let timerSecondsRemaining = 0;
+        let timerTotalSeconds = 30;
+        let timerCountdownInterval = null;
+
+        // Position translation mapping
+        const POSITION_NAMES = {
+            'top': 'ÜST KORİDOR',
+            'jungle': 'ORMAN',
+            'middle': 'ORTA KORİDOR',
+            'mid': 'ORTA KORİDOR',
+            'bottom': 'ALT KORİDOR',
+            'bot': 'ALT KORİDOR',
+            'utility': 'DESTEK',
+            'support': 'DESTEK',
+            '': 'KORİDOR'
+        };
 
         function setStatus(text, type) {
             statusText.innerText = text;
@@ -349,8 +751,8 @@ INDEX_HTML = """<!DOCTYPE html>
                 const gain = ctx.createGain();
 
                 osc.type = 'triangle';
-                osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
-                osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.3); // G5
+                osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.3);
                 gain.gain.setValueAtTime(0.4, ctx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
 
@@ -369,47 +771,232 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         }
 
+        function getChampionIconUrl(id) {
+            if (!id || id <= 0) return '';
+            return `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/${id}.png`;
+        }
+
         function updateGameflow(phase) {
             const p = String(phase || 'None');
-            if (p === 'ReadyCheck') {
-                phaseDisplay.innerText = '⚔️ MAÇ BULUNDU!';
-                phaseCard.classList.add('ready-check-active');
-                acceptBtn.disabled = false;
-                acceptBtn.classList.remove('accepted');
-                acceptBtn.classList.add('active');
-                acceptBtn.innerText = 'KABUL ET';
-                infoMessage.innerText = 'Eşleşme bulundu! Sırayı kaçırmamak için butona basın.';
-                playChime();
-                triggerVibrate();
+            if (p === 'ChampSelect') {
+                mainView.style.display = 'none';
+                champSelectView.style.display = 'flex';
+                // Request champ select state and champion catalog immediately
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    try {
+                        socket.send(JSON.stringify({ type: 'GET_CHAMP_SELECT', token: sessionToken }));
+                        socket.send(JSON.stringify({ type: 'GET_GRID_CHAMPIONS', token: sessionToken }));
+                    } catch (e) {}
+                }
             } else {
-                phaseCard.classList.remove('ready-check-active');
-                acceptBtn.disabled = true;
-                acceptBtn.classList.remove('active');
-                acceptBtn.classList.remove('accepted');
+                mainView.style.display = 'flex';
+                champSelectView.style.display = 'none';
+                clearInterval(timerCountdownInterval);
 
-                if (p === 'Matchmaking') {
-                    phaseDisplay.innerText = '⏳ Sırada...';
-                    acceptBtn.innerText = 'SIRADA BEKLENİYOR';
-                    infoMessage.innerText = 'Eşleşme aranıyor...';
-                } else if (p === 'ChampSelect') {
-                    phaseDisplay.innerText = '🏆 Şampiyon Seçimi';
-                    acceptBtn.innerText = 'ŞAMPİYON SEÇİMİ';
-                    infoMessage.innerText = 'Şampiyon seçimi aşaması aktif.';
-                } else if (p === 'InProgress') {
-                    phaseDisplay.innerText = '🔥 Oyunda';
-                    acceptBtn.innerText = 'OYUNDASINIZ';
-                    infoMessage.innerText = 'Karşılaşma devam ediyor.';
-                } else if (p === 'Lobby') {
-                    phaseDisplay.innerText = '🏠 Lobide';
-                    acceptBtn.innerText = 'LOBİDE';
-                    infoMessage.innerText = 'Oda liderinin sırayı başlatması bekleniyor.';
+                if (p === 'ReadyCheck') {
+                    phaseDisplay.innerText = '⚔️ MAÇ BULUNDU!';
+                    phaseCard.classList.add('ready-check-active');
+                    acceptBtn.disabled = false;
+                    acceptBtn.classList.remove('accepted');
+                    acceptBtn.classList.add('active');
+                    acceptBtn.innerText = 'KABUL ET';
+                    infoMessage.innerText = 'Eşleşme bulundu! Sırayı kaçırmamak için butona basın.';
+                    playChime();
+                    triggerVibrate();
                 } else {
-                    phaseDisplay.innerText = '🎮 Oyun Dışı';
-                    acceptBtn.innerText = 'BEKLENİYOR';
-                    infoMessage.innerText = 'League Client bağlantısı bekleniyor...';
+                    phaseCard.classList.remove('ready-check-active');
+                    acceptBtn.disabled = true;
+                    acceptBtn.classList.remove('active');
+                    acceptBtn.classList.remove('accepted');
+
+                    if (p === 'Matchmaking') {
+                        phaseDisplay.innerText = '⏳ Sırada...';
+                        acceptBtn.innerText = 'SIRADA BEKLENİYOR';
+                        infoMessage.innerText = 'Eşleşme aranıyor...';
+                    } else if (p === 'InProgress') {
+                        phaseDisplay.innerText = '🔥 Oyunda';
+                        acceptBtn.innerText = 'OYUNDASINIZ';
+                        infoMessage.innerText = 'Karşılaşma devam ediyor.';
+                    } else if (p === 'Lobby') {
+                        phaseDisplay.innerText = '🏠 Lobide';
+                        acceptBtn.innerText = 'LOBİDE';
+                        infoMessage.innerText = 'Oda liderinin sırayı başlatması bekleniyor.';
+                    } else {
+                        phaseDisplay.innerText = '🎮 Oyun Dışı';
+                        acceptBtn.innerText = 'BEKLENİYOR';
+                        infoMessage.innerText = 'League Client bağlantısı bekleniyor...';
+                    }
                 }
             }
         }
+
+        function renderChampSelect(data) {
+            if (!data) return;
+            currentChampSelect = data;
+
+            // 1. Update Timer
+            if (data.timer) {
+                const totalMs = data.timer.totalTimeInPhase || 30000;
+                const leftMs = data.timer.adjustedTimeLeftInPhase || data.timer.timeLeftInPhase || 30000;
+                timerTotalSeconds = Math.max(1, Math.round(totalMs / 1000));
+                timerSecondsRemaining = Math.max(0, Math.round(leftMs / 1000));
+                csTimerBadge.innerText = timerSecondsRemaining + 's';
+
+                clearInterval(timerCountdownInterval);
+                timerCountdownInterval = setInterval(() => {
+                    if (timerSecondsRemaining > 0) {
+                        timerSecondsRemaining--;
+                        csTimerBadge.innerText = timerSecondsRemaining + 's';
+                        const pct = Math.max(0, Math.min(100, (timerSecondsRemaining / timerTotalSeconds) * 100));
+                        csProgressBar.style.width = pct + '%';
+                        if (timerSecondsRemaining <= 5) {
+                            csProgressBar.style.background = 'var(--danger)';
+                            csTimerBadge.style.color = 'var(--danger)';
+                        } else {
+                            csProgressBar.style.background = 'var(--gold-2)';
+                            csTimerBadge.style.color = 'var(--gold-1)';
+                        }
+                    }
+                }, 1000);
+            }
+
+            // 2. Update Local Player Lane & Active Action
+            const localPlayer = data.localPlayer;
+            if (localPlayer) {
+                const pos = (localPlayer.assignedPosition || localPlayer.assigned_position || '').toLowerCase();
+                csPositionBadge.innerText = POSITION_NAMES[pos] || 'KORİDOR';
+            }
+
+            const activeAction = data.activeAction;
+            if (activeAction) {
+                const isBan = (activeAction.type || '').toLowerCase() === 'ban';
+                csModeBadge.innerText = isBan ? 'YASAKLAMA' : 'SEÇİM';
+                csModeBadge.className = 'cs-badge ' + (isBan ? 'ban' : 'pick');
+
+                csLockBtn.disabled = (selectedChampId <= 0);
+                csLockBtn.innerText = isBan ? 'YASAKLA' : 'KİLİTLE';
+                csLockBtn.className = 'cs-btn-lock ' + (isBan ? 'ban' : 'pick');
+            } else {
+                csModeBadge.innerText = 'BEKLENİYOR';
+                csModeBadge.className = 'cs-badge pos';
+                csLockBtn.disabled = true;
+                csLockBtn.innerText = 'SIRA BEKLENİYOR';
+                csLockBtn.className = 'cs-btn-lock';
+            }
+
+            // 3. Render Team Rosters
+            renderTeamRoster(myTeamList, data.myTeam || [], data.localPlayerCellId);
+            renderTeamRoster(theirTeamList, data.theirTeam || [], -1);
+
+            // 4. Update Champion Grid (gray out banned champions)
+            renderChampGrid();
+        }
+
+        function findChampionName(id) {
+            if (!id || id <= 0) return 'Seçim Yapılmadı';
+            const found = gridChampions.find(c => c.id === id);
+            return found ? found.name : `Şampiyon #${id}`;
+        }
+
+        function renderTeamRoster(container, members, localCellId) {
+            container.innerHTML = '';
+            members.forEach(m => {
+                const row = document.createElement('div');
+                const isMe = (m.cellId === localCellId || m.cell_id === localCellId);
+                row.className = 'member-row' + (isMe ? ' is-me' : '');
+
+                const pos = (m.assignedPosition || m.assigned_position || '').substring(0, 3).toUpperCase();
+                const champId = m.championId || m.champion_id || m.championPickIntent || m.champion_pick_intent || 0;
+                const champName = findChampionName(champId);
+
+                row.innerHTML = `
+                    <span class="member-pos">${pos || '—'}</span>
+                    <span class="member-champ">${champName}</span>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        function renderChampGrid() {
+            const query = (champSearchInput.value || '').trim().toLowerCase();
+            champGrid.innerHTML = '';
+
+            const bannedSet = new Set(currentChampSelect ? (currentChampSelect.allBannedIds || []) : []);
+
+            const filtered = gridChampions.filter(c => {
+                if (!query) return true;
+                return (c.name || '').toLowerCase().includes(query);
+            });
+
+            filtered.forEach(c => {
+                const item = document.createElement('div');
+                const isBanned = bannedSet.has(c.id);
+                const isSelected = (selectedChampId === c.id);
+
+                item.className = 'champ-item' + (isSelected ? ' selected' : '') + (isBanned ? ' banned' : '');
+
+                const iconUrl = getChampionIconUrl(c.id);
+                item.innerHTML = `
+                    <img class="champ-img" src="${iconUrl}" onerror="this.style.opacity='0.2'" alt="${c.name}">
+                    <span class="champ-name">${c.name}</span>
+                `;
+
+                if (!isBanned) {
+                    item.addEventListener('click', () => {
+                        selectChampion(c.id, c.name);
+                    });
+                }
+
+                champGrid.appendChild(item);
+            });
+        }
+
+        function selectChampion(id, name) {
+            selectedChampId = id;
+            selectedChampName = name;
+
+            csPreviewName.innerText = name;
+            csPreviewImg.src = getChampionIconUrl(id);
+            csPreviewImg.style.display = 'block';
+
+            // Send hover intent to LCU if active action exists
+            if (currentChampSelect && currentChampSelect.activeAction) {
+                csLockBtn.disabled = false;
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'CHAMP_SELECT_ACTION',
+                        token: sessionToken,
+                        actionId: currentChampSelect.activeAction.id,
+                        championId: id,
+                        completed: false
+                    }));
+                }
+            }
+
+            renderChampGrid();
+        }
+
+        champSearchInput.addEventListener('input', () => {
+            renderChampGrid();
+        });
+
+        csLockBtn.addEventListener('click', () => {
+            if (csLockBtn.disabled || !currentChampSelect || !currentChampSelect.activeAction || selectedChampId <= 0) {
+                return;
+            }
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'CHAMP_SELECT_ACTION',
+                    token: sessionToken,
+                    actionId: currentChampSelect.activeAction.id,
+                    championId: selectedChampId,
+                    completed: true
+                }));
+                csLockBtn.innerText = 'KİLİTLENDİ ✓';
+                csLockBtn.disabled = true;
+            }
+        });
 
         async function autoPair(ott) {
             setStatus('Eşleştiriliyor...', '');
@@ -437,7 +1024,6 @@ INDEX_HTML = """<!DOCTYPE html>
                     const data = await resp.json();
                     sessionToken = data.session_token || data.sessionToken;
                     localStorage.setItem('riftpilot_session_token', sessionToken);
-                    // Clear ?ott= from address bar
                     window.history.replaceState({}, document.title, window.location.pathname);
                     connectWebSocket();
                 } else {
@@ -463,7 +1049,6 @@ INDEX_HTML = """<!DOCTYPE html>
 
             socket.onopen = () => {
                 setStatus('Bağlandı', 'connected');
-                // Request live state immediately upon connection
                 try {
                     socket.send(JSON.stringify({ type: 'GET_STATE', token: sessionToken }));
                 } catch (e) {}
@@ -479,12 +1064,23 @@ INDEX_HTML = """<!DOCTYPE html>
                         if (data.lcu_connected !== undefined) {
                             updateLcuStatus(data.lcu_connected);
                         }
+                    } else if (data.type === 'CHAMP_SELECT_UPDATE') {
+                        renderChampSelect(data.data);
+                    } else if (data.type === 'GRID_CHAMPIONS') {
+                        gridChampions = data.data || [];
+                        renderChampGrid();
                     } else if (data.type === 'READY_CHECK_ACCEPTED') {
                         if (data.success) {
                             acceptBtn.innerText = '✓ KABUL EDİLDİ';
                             acceptBtn.classList.remove('active');
                             acceptBtn.classList.add('accepted');
                             infoMessage.innerText = 'Maç kabul edildi! Şampiyon seçimi bekleniyor.';
+                        }
+                    } else if (data.type === 'ACTION_RESULT') {
+                        if (data.success && data.completed) {
+                            csLockBtn.innerText = 'KİLİTLENDİ ✓';
+                            csLockBtn.disabled = true;
+                            triggerVibrate();
                         }
                     } else if (data.type === 'REVOKED' || data.type === 'UNAUTHORIZED') {
                         localStorage.removeItem('riftpilot_session_token');
@@ -521,7 +1117,7 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         }, 8000);
 
-        // Auto re-sync when browser tab or phone screen wakes up
+        // Auto re-sync on tab / lock screen wake
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
@@ -531,6 +1127,9 @@ INDEX_HTML = """<!DOCTYPE html>
                 } else if (socket.readyState === WebSocket.OPEN) {
                     try {
                         socket.send(JSON.stringify({ type: 'GET_STATE', token: sessionToken }));
+                        if (champSelectView.style.display !== 'none') {
+                            socket.send(JSON.stringify({ type: 'GET_CHAMP_SELECT', token: sessionToken }));
+                        }
                     } catch (e) {}
                 }
             }
@@ -572,6 +1171,14 @@ class PairRequest(BaseModel):
     clientInstanceId: str | None = Field(
         default=None, description="Optional client instance identifier"
     )
+
+
+class ChampSelectActionRequest(BaseModel):
+    """Payload schema for performing remote champion select actions."""
+
+    actionId: int = Field(..., description="Action ID to hover or lock in")
+    championId: int = Field(..., description="Champion ID to select")
+    completed: bool = Field(default=True, description="True to lock in, False to hover")
 
 
 def create_app(
@@ -620,12 +1227,34 @@ def create_app(
         for ws in dead_connections:
             active_connections.discard(ws)
 
+    async def broadcast_champ_select(session: ChampSelectSession | None) -> None:
+        """Broadcast live champ select session state to all active WebSocket clients."""
+        payload: dict[str, Any] = {
+            "type": "CHAMP_SELECT_UPDATE",
+            "data": session.to_dict() if session is not None else None,
+        }
+        dead_connections: list[WebSocket] = []
+
+        for ws in list(active_connections):
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                dead_connections.append(ws)
+
+        for ws in dead_connections:
+            active_connections.discard(ws)
+
     async def on_phase_change(phase: GameflowPhase | str) -> None:
         """Subscriber callback invoked upon LCU gameflow phase transition."""
         await broadcast_phase(phase, lcu_connected=True)
 
+    async def on_champ_select_update(session: ChampSelectSession | None) -> None:
+        """Subscriber callback invoked upon LCU champ select session update."""
+        await broadcast_champ_select(session)
+
     if lcu_adapter is not None:
         lcu_adapter.subscribe_phase_change(on_phase_change)
+        lcu_adapter.subscribe_champ_select(on_champ_select_update)
 
     async def _lcu_monitor_loop() -> None:
         """Background coroutine maintaining live connection to League Client."""
@@ -648,7 +1277,6 @@ def create_app(
                     # Notify status changes
                     if status != last_status:
                         last_status = status
-                        is_conn = (status == LcuConnectionStatus.CONNECTED)
                         if ui_bridge is not None and hasattr(ui_bridge, "notify_status_change"):
                             try:
                                 ui_bridge.notify_status_change(status)
@@ -759,6 +1387,36 @@ def create_app(
             "deviceName": session.device_name,
         }
 
+    @app.get("/api/champ-select")
+    async def get_champ_select_state() -> dict[str, Any]:
+        """Fetch current champion select session state."""
+        if lcu_adapter is None:
+            return {"session": None}
+        session = await lcu_adapter.get_champ_select_session()
+        return {"session": session.to_dict() if session is not None else None}
+
+    @app.get("/api/champ-select/grid")
+    async def get_champ_select_grid() -> dict[str, Any]:
+        """Fetch list of selectable and bannable grid champions."""
+        if lcu_adapter is None:
+            return {"champions": []}
+        champions = await lcu_adapter.get_grid_champions()
+        return {"champions": [c.to_dict() for c in champions]}
+
+    @app.post("/api/champ-select/action")
+    async def perform_champ_select_action(
+        payload: ChampSelectActionRequest,
+    ) -> dict[str, Any]:
+        """Hover or lock-in a pick or ban action."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.patch_champ_select_action(
+            action_id=payload.actionId,
+            champion_id=payload.championId,
+            completed=payload.completed,
+        )
+        return {"success": bool(success)}
+
     # =========================================================================
     # WebSocket Route
     # =========================================================================
@@ -865,6 +1523,49 @@ def create_app(
                             "success": bool(success),
                         }
                     )
+                elif cmd_type == "GET_CHAMP_SELECT":
+                    cs_data = None
+                    if lcu_adapter is not None:
+                        cs = await lcu_adapter.get_champ_select_session()
+                        if cs is not None:
+                            cs_data = cs.to_dict()
+                    await websocket.send_json(
+                        {
+                            "type": "CHAMP_SELECT_UPDATE",
+                            "data": cs_data,
+                        }
+                    )
+                elif cmd_type == "GET_GRID_CHAMPIONS":
+                    grid_data = []
+                    if lcu_adapter is not None:
+                        champs = await lcu_adapter.get_grid_champions()
+                        grid_data = [c.to_dict() for c in champs]
+                    await websocket.send_json(
+                        {
+                            "type": "GRID_CHAMPIONS",
+                            "data": grid_data,
+                        }
+                    )
+                elif cmd_type == "CHAMP_SELECT_ACTION":
+                    action_id = int(data.get("actionId", 0))
+                    champion_id = int(data.get("championId", 0))
+                    completed = bool(data.get("completed", True))
+                    success = False
+                    if lcu_adapter is not None and action_id > 0:
+                        success = await lcu_adapter.patch_champ_select_action(
+                            action_id=action_id,
+                            champion_id=champion_id,
+                            completed=completed,
+                        )
+                    await websocket.send_json(
+                        {
+                            "type": "ACTION_RESULT",
+                            "actionId": action_id,
+                            "championId": champion_id,
+                            "completed": completed,
+                            "success": bool(success),
+                        }
+                    )
                 elif cmd_type == "PING":
                     await websocket.send_json({"type": "PONG"})
                 elif cmd_type == "GET_STATE":
@@ -908,4 +1609,4 @@ def create_app(
     return app
 
 
-__all__ = ["INDEX_HTML", "PairRequest", "create_app"]
+__all__ = ["INDEX_HTML", "ChampSelectActionRequest", "PairRequest", "create_app"]

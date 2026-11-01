@@ -242,10 +242,17 @@ class TestILcuPortContract:
             "get_gameflow_phase",
             "accept_ready_check",
             "subscribe_phase_change",
+            "get_champ_select_session",
+            "patch_champ_select_action",
+            "get_grid_champions",
+            "subscribe_champ_select",
+            "unsubscribe_champ_select",
             "simulate_connect",
             "simulate_disconnect",
             "simulate_phase_change",
             "simulate_ready_check",
+            "simulate_champ_select_session",
+            "set_grid_champions",
         ]
         for method_name in required_methods:
             assert hasattr(mock_lcu, method_name), (
@@ -671,3 +678,133 @@ class TestMockLcuDisconnectAndErrorHandling:
 
         assert lobby in history
         assert champ_select in history
+
+
+# ============================================================================
+# 8. Champion Select Simulation Tests
+# ============================================================================
+
+
+class TestMockLcuChampSelect:
+    """Verifies Champion Select behavior, actions, and event subscriptions on MockLcuAdapter."""
+
+    @pytest.mark.asyncio
+    async def test_initial_champ_select_is_none(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """When disconnected or initial, champ select session must be None."""
+        assert await mock_lcu.get_champ_select_session() is None
+        assert await mock_lcu.get_grid_champions() == []
+
+    @pytest.mark.asyncio
+    async def test_simulate_champ_select_session_notifies_subscribers(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Simulating a champ select session transitions phase and notifies subscribers."""
+        from riftpilot.core.champ_select import (
+            ChampSelectAction,
+            ChampSelectPlayer,
+            ChampSelectSession,
+        )
+
+        received_sessions: list[ChampSelectSession | None] = []
+
+        def on_champ_select(session: ChampSelectSession | None) -> None:
+            received_sessions.append(session)
+
+        mock_lcu.subscribe_champ_select(on_champ_select)
+        await mock_lcu.simulate_connect()
+
+        session = ChampSelectSession(
+            local_player_cell_id=0,
+            my_team=[ChampSelectPlayer(cell_id=0, champion_id=0, team=1)],
+            actions=[
+                [ChampSelectAction(id=1, actor_cell_id=0, type="pick", is_in_progress=True)]
+            ],
+        )
+        await mock_lcu.simulate_champ_select_session(session)
+
+        assert await mock_lcu.get_gameflow_phase() == GameflowPhase.CHAMP_SELECT
+        assert await mock_lcu.get_champ_select_session() == session
+        assert len(received_sessions) == 1
+        assert received_sessions[0] == session
+
+    @pytest.mark.asyncio
+    async def test_patch_champ_select_action_updates_state_and_locks_in(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Patching an action updates champion_id, completed status, and player profile."""
+        from riftpilot.core.champ_select import (
+            ChampSelectAction,
+            ChampSelectPlayer,
+            ChampSelectSession,
+        )
+
+        await mock_lcu.simulate_connect()
+        session = ChampSelectSession(
+            local_player_cell_id=0,
+            my_team=[ChampSelectPlayer(cell_id=0, champion_id=0, team=1)],
+            actions=[
+                [ChampSelectAction(id=1, actor_cell_id=0, type="pick", is_in_progress=True)]
+            ],
+        )
+        await mock_lcu.simulate_champ_select_session(session)
+
+        # Lock in champion 103 (Ahri)
+        success = await mock_lcu.patch_champ_select_action(action_id=1, champion_id=103, completed=True)
+        assert success is True
+
+        active = session.actions[0][0]
+        assert active.champion_id == 103
+        assert active.completed is True
+        assert active.is_in_progress is False
+
+        local_p = session.get_local_player()
+        assert local_p is not None
+        assert local_p.champion_id == 103
+
+    @pytest.mark.asyncio
+    async def test_patch_champ_select_action_fails_when_disconnected(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Patching action when disconnected returns False."""
+        success = await mock_lcu.patch_champ_select_action(action_id=1, champion_id=103)
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_grid_champions_configuration(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Setting and retrieving grid champions."""
+        from riftpilot.core.champ_select import ChampionSummary
+
+        await mock_lcu.simulate_connect()
+        champs = [
+            ChampionSummary(id=103, name="Ahri", roles=["mage"]),
+            ChampionSummary(id=84, name="Akali", roles=["assassin"]),
+        ]
+        mock_lcu.set_grid_champions(champs)
+        retrieved = await mock_lcu.get_grid_champions()
+        assert len(retrieved) == 2
+        assert retrieved[0].name == "Ahri"
+
+    @pytest.mark.asyncio
+    async def test_unsubscribe_champ_select(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Unsubscribing champ select callback stops notifications."""
+        from riftpilot.core.champ_select import ChampSelectSession
+
+        calls: list[Any] = []
+
+        def callback(session: ChampSelectSession | None) -> None:
+            calls.append(session)
+
+        mock_lcu.subscribe_champ_select(callback)
+        assert mock_lcu.unsubscribe_champ_select(callback) is True
+        assert mock_lcu.unsubscribe_champ_select(callback) is False
+
+        await mock_lcu.simulate_connect()
+        await mock_lcu.simulate_champ_select_session(ChampSelectSession())
+        assert len(calls) == 0
+
