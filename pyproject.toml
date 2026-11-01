@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "riftpilot"
+version = "0.1.0"
+description = "Remote orchestration and companion system for League of Legends client"
+readme = "README.md"
+requires-python = ">=3.14"
+authors = [
+    { name = "SametDrs", email = "samet.drs123@gmail.com" }
+]
+license = { text = "MIT" }
+keywords = ["league-of-legends", "lcu", "remote-control", "pyside6", "fastapi"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Games/Entertainment",
+]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "pyside6>=6.8.0",
+    "pydantic>=2.9.0",
+    "httpx>=0.27.0",
+    "websockets>=13.0",
+    "qrcode>=8.0",
+    "psutil>=6.0.0",
+    "pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
