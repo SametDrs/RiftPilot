@@ -132,6 +132,14 @@ class RiotLcuAdapter(ILcuPort):
             return await self._stream.start()
         return False
 
+    async def ensure_stream_started(self) -> bool:
+        """Ensure WebSocket event stream is running if connected."""
+        if self._status == LcuConnectionStatus.CONNECTED and self._stream is not None:
+            if not self._stream.is_connected:
+                return await self._stream.start()
+            return True
+        return False
+
     async def connect(self) -> bool:
         """Attempt to discover running League Client instance and connect.
 
@@ -145,6 +153,8 @@ class RiotLcuAdapter(ILcuPort):
             if self._stream is not None:
                 await self._stream.stop()
             self._set_connected(creds)
+            if self._stream is not None:
+                await self._stream.start()
             return True
 
         self._status = LcuConnectionStatus.DISCONNECTED
