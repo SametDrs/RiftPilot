@@ -9,12 +9,14 @@ security specifications (ADR-0004).
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Callable
 
 import httpx
 
 from riftpilot.adapters.lcu_discovery import LcuCredentials, LcuDiscoverer
+from riftpilot.adapters.lcu_stream import LcuEventStream
 from riftpilot.core.lcu_port import (
     GameflowPhase,
     ILcuPort,
@@ -48,6 +50,7 @@ class RiotLcuAdapter(ILcuPort):
         self._credentials: LcuCredentials | None = None
         self._status: LcuConnectionStatus = LcuConnectionStatus.DISCONNECTED
         self._client: httpx.AsyncClient | None = None
+        self._stream: LcuEventStream | None = None
         self._subscribers: list[Callable[[GameflowPhase], Any]] = []
 
         if credentials is not None:
@@ -74,7 +77,7 @@ class RiotLcuAdapter(ILcuPort):
         return None
 
     def _set_connected(self, credentials: LcuCredentials) -> None:
-        """Configure internal HTTPX client with credentials and transition to CONNECTED."""
+        """Configure internal HTTPX client and WebSocket event stream with credentials."""
         self._credentials = credentials
         self._status = LcuConnectionStatus.CONNECTED
 
@@ -94,10 +97,40 @@ class RiotLcuAdapter(ILcuPort):
         setattr(client, "verify", False)
         self._client = client
 
+        self._stream = LcuEventStream(
+            credentials=credentials,
+            on_phase_change=self._on_stream_phase_change,
+        )
+
     @property
     def credentials(self) -> LcuCredentials | None:
         """Return the current LCU credentials if connected, else None."""
         return self._credentials if self._status == LcuConnectionStatus.CONNECTED else None
+
+    @property
+    def stream(self) -> LcuEventStream | None:
+        """Return the active LCU event stream instance, if available."""
+        return self._stream
+
+    async def _on_stream_phase_change(self, phase: GameflowPhase) -> None:
+        """Internal callback invoked by LcuEventStream when a phase transition occurs."""
+        for subscriber in list(self._subscribers):
+            try:
+                res = subscriber(phase)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as exc:
+                logger.warning("Error in phase subscriber: %s", exc)
+
+    async def start_stream(self) -> bool:
+        """Start the real-time WebSocket event stream if credentials are configured.
+
+        Returns:
+            True if the stream connected and started listening, False otherwise.
+        """
+        if self._stream is not None:
+            return await self._stream.start()
+        return False
 
     async def connect(self) -> bool:
         """Attempt to discover running League Client instance and connect.
@@ -109,6 +142,8 @@ class RiotLcuAdapter(ILcuPort):
         if creds is not None:
             if self._client is not None and not self._client.is_closed:
                 await self._client.aclose()
+            if self._stream is not None:
+                await self._stream.stop()
             self._set_connected(creds)
             return True
 
@@ -219,9 +254,12 @@ class RiotLcuAdapter(ILcuPort):
         return False
 
     async def close(self) -> None:
-        """Close the internal HTTPX client and release connection resources."""
+        """Close internal HTTPX client and WebSocket stream, releasing resources."""
         self._status = LcuConnectionStatus.DISCONNECTED
         self._credentials = None
+        if self._stream is not None:
+            await self._stream.stop()
+            self._stream = None
         if self._client is not None:
             if not self._client.is_closed:
                 await self._client.aclose()
