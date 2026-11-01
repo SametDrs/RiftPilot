@@ -248,6 +248,11 @@ class ChampSelectSession:
     bans: ChampSelectBans = field(default_factory=ChampSelectBans)
     is_spectating: bool = False
     bench_champions: list[dict[str, Any]] = field(default_factory=list)
+    bench_enabled: bool = False
+    rerolls_remaining: int = 0
+    has_simultaneous_bans: bool = False
+    has_simultaneous_picks: bool = False
+    is_custom_game: bool = False
 
     @classmethod
     def from_lcu_dict(cls, data: dict[str, Any]) -> ChampSelectSession:
@@ -284,7 +289,14 @@ class ChampSelectSession:
             timer=timer,
             bans=bans,
             is_spectating=bool(data.get("isSpectating", False)),
-            bench_champions=list(data.get("benchChampions", [])),
+            bench_champions=[
+                b for b in (data.get("benchChampions") or []) if isinstance(b, dict)
+            ],
+            bench_enabled=bool(data.get("benchEnabled", False)),
+            rerolls_remaining=int(data.get("rerollsRemaining", 0) or 0),
+            has_simultaneous_bans=bool(data.get("hasSimultaneousBans", False)),
+            has_simultaneous_picks=bool(data.get("hasSimultaneousPicks", False)),
+            is_custom_game=bool(data.get("isCustomGame", False)),
         )
 
     def get_local_player(self) -> ChampSelectPlayer | None:
@@ -332,6 +344,59 @@ class ChampSelectSession:
 
         return None
 
+    def iter_actions(self) -> list[ChampSelectAction]:
+        """Return all actions flattened in turn order."""
+        return [action for group in self.actions for action in group]
+
+    def has_ban_actions(self) -> bool:
+        """Return True if the client defined at least one ban action (ban phase exists)."""
+        return any(action.is_ban() for action in self.iter_actions())
+
+    def has_pick_actions(self) -> bool:
+        """Return True if the client defined at least one pick action."""
+        return any(action.is_pick() for action in self.iter_actions())
+
+    def get_local_actions(self, action_type: str | None = None) -> list[ChampSelectAction]:
+        """Return all actions owned by the local player, optionally filtered by type."""
+        if self.local_player_cell_id < 0:
+            return []
+        return [
+            action
+            for action in self.iter_actions()
+            if action.actor_cell_id == self.local_player_cell_id
+            and (action_type is None or action.type == action_type)
+        ]
+
+    def get_in_progress_local_action(self) -> ChampSelectAction | None:
+        """Return the local player's action that is currently in progress (their turn)."""
+        for action in self.get_local_actions():
+            if action.is_in_progress and not action.completed:
+                return action
+        return None
+
+    def get_unavailable_pick_ids(self) -> set[int]:
+        """Return champion IDs already locked in by other players (cannot be picked)."""
+        return {
+            action.champion_id
+            for action in self.iter_actions()
+            if action.is_pick()
+            and action.completed
+            and action.champion_id > 0
+            and action.actor_cell_id != self.local_player_cell_id
+        }
+
+    def get_bench_champion_ids(self) -> list[int]:
+        """Return champion IDs currently on the shared bench (ARAM-like modes)."""
+        ids: list[int] = []
+        for entry in self.bench_champions:
+            try:
+                champ_id = int(entry.get("championId", 0))
+            except (TypeError, ValueError):
+                continue
+            if champ_id > 0:
+                ids.append(champ_id)
+        return ids
+
     def get_all_banned_ids(self) -> set[int]:
         """Return the combined set of all banned champion IDs."""
         banned = set(self.bans.my_team_bans + self.bans.their_team_bans)
@@ -359,7 +424,11 @@ class ChampSelectSession:
             "active_action": active_action.to_dict() if active_action else None,
             "localPlayer": local_player.to_dict() if local_player else None,
             "local_player": local_player.to_dict() if local_player else None,
-            "allBannedIds": list(self.get_all_banned_ids()),
+            "allBannedIds": sorted(self.get_all_banned_ids()),
+            "unavailablePickIds": sorted(self.get_unavailable_pick_ids()),
+            "benchEnabled": self.bench_enabled,
+            "benchChampionIds": self.get_bench_champion_ids(),
+            "rerollsRemaining": self.rerolls_remaining,
         }
 
 

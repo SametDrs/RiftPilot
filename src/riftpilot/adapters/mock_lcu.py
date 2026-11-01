@@ -4,7 +4,9 @@ Provides a deterministic test double for the League Client (LCU) outbound port.
 Enforces Hexagonal Architecture (ADR-0003) contracts:
 - Simulates gameflow phase transitions and event subscriptions.
 - Simulates ready check flows.
+- Simulates game mode contexts (Ranked, Blind, ARAM, ARAM Şamata, Unsupported).
 - Simulates champion select sessions, actions (pick/ban), and champion grids.
+- Simulates mode-filtered summoner spells and official LCU recommended rune pages.
 """
 
 from __future__ import annotations
@@ -14,9 +16,49 @@ import logging
 from typing import Any, Callable
 
 from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
+from riftpilot.core.game_mode import GameModeContext
 from riftpilot.core.lcu_port import GameflowPhase, ILcuPort, LcuConnectionStatus
+from riftpilot.core.runes_spells import (
+    RecommendedRunePage,
+    RunePage,
+    SummonerSpell,
+    get_spells_for_mode,
+)
 
 logger = logging.getLogger("RiftPilot.MockLCU")
+
+
+def _build_default_mock_recommended_pages(champion_id: int) -> list[RecommendedRunePage]:
+    """Build 3 realistic mock LCU recommended rune pages for deterministic testing."""
+    pages_raw = [
+        {
+            "name": "Anlık Hasar (Elektrik Ver)",
+            "primaryStyleId": 8100,
+            "subStyleId": 8200,
+            "selectedPerkIds": [8112, 8143, 8138, 8106, 8226, 8210, 5008, 5008, 5001],
+            "recommendedChampionId": champion_id,
+        },
+        {
+            "name": "Uzun Çatışma (Yenilmez)",
+            "primaryStyleId": 8000,
+            "subStyleId": 8400,
+            "selectedPerkIds": [8010, 9111, 9104, 8299, 8444, 8451, 5005, 5008, 5002],
+            "recommendedChampionId": champion_id,
+        },
+        {
+            "name": "Dürtme & Koridor (Sihirli Yıldız)",
+            "primaryStyleId": 8200,
+            "subStyleId": 8300,
+            "selectedPerkIds": [8229, 8226, 8210, 8237, 8304, 8345, 5008, 5008, 5003],
+            "recommendedChampionId": champion_id,
+        },
+    ]
+    result: list[RecommendedRunePage] = []
+    for idx, item in enumerate(pages_raw):
+        parsed = RecommendedRunePage.from_lcu_dict(item, champion_id=champion_id, index=idx)
+        if parsed is not None:
+            result.append(parsed)
+    return result
 
 
 class MockLcuAdapter(ILcuPort):
@@ -40,9 +82,22 @@ class MockLcuAdapter(ILcuPort):
             "timer": 0.0,
         }
 
-        # Champion select state attributes
+        # Game mode & Champion select state attributes
+        self._game_mode_context: GameModeContext = GameModeContext(
+            game_mode="CLASSIC",
+            queue_id=420,
+            queue_name="Dereceli Tek/Çift",
+            map_id=11,
+        )
         self._champ_select_session: ChampSelectSession | None = None
         self._grid_champions: list[ChampionSummary] = []
+
+        # Runes and summoner spells state
+        self.spell1_id: int = 4   # Default Flash
+        self.spell2_id: int = 14  # Default Ignite
+        self.current_rune_page: RunePage | None = RunePage()
+        # Optional override map: champion_id -> list[RecommendedRunePage]
+        self._recommended_pages_by_champ: dict[int, list[RecommendedRunePage]] | None = None
 
     # ========================================================================
     # ILcuPort Implementation — Core Status & Phase
@@ -56,12 +111,12 @@ class MockLcuAdapter(ILcuPort):
         """Return the current mock gameflow phase."""
         return self._phase
 
-    async def accept_ready_check(self) -> bool:
-        """Accept an active ready check if connected and in READY_CHECK phase.
+    async def get_game_mode_context(self) -> GameModeContext:
+        """Return the configured mock game mode context."""
+        return self._game_mode_context
 
-        Returns:
-            True if ready check was successfully accepted, False otherwise.
-        """
+    async def accept_ready_check(self) -> bool:
+        """Accept an active ready check if connected and in READY_CHECK phase."""
         if self._status != LcuConnectionStatus.CONNECTED:
             logger.warning("accept_ready_check rejected: adapter is not connected.")
             return False
@@ -122,15 +177,11 @@ class MockLcuAdapter(ILcuPort):
             logger.warning("patch_champ_select_action failed: no active session.")
             return False
 
-        # Find target action across all action groups
         target_action = None
-        for group in self._champ_select_session.actions:
-            for action in group:
-                if action.id == action_id:
-                    target_action = action
-                    break
-            if target_action is not None:
-                break
+        if action_id > 0:
+            target_action = self._champ_select_session.find_action(action_id)
+        if target_action is None:
+            target_action = self._champ_select_session.get_active_action()
 
         if target_action is None:
             logger.warning("patch_champ_select_action failed: action %s not found.", action_id)
@@ -140,15 +191,21 @@ class MockLcuAdapter(ILcuPort):
         if completed:
             target_action.completed = True
             target_action.is_in_progress = False
+            if target_action.is_ban() and champion_id > 0:
+                if champion_id not in self._champ_select_session.bans.my_team_bans:
+                    self._champ_select_session.bans.my_team_bans.append(champion_id)
 
-        # If action was a pick for local user, update player champion_id as well
+        # If action was a pick for local user, update player champion_id / pick_intent
         local_player = self._champ_select_session.get_local_player()
         if (
             local_player
             and target_action.actor_cell_id == local_player.cell_id
             and target_action.is_pick()
         ):
-            local_player.champion_id = champion_id
+            if completed:
+                local_player.champion_id = champion_id
+            else:
+                local_player.champion_pick_intent = champion_id
 
         # Notify subscribers about session update
         await self._dispatch_champ_select(self._champ_select_session)
@@ -187,6 +244,70 @@ class MockLcuAdapter(ILcuPort):
                 logger.warning("Error in champ select subscriber: %s", e)
 
     # ========================================================================
+    # ILcuPort Implementation — Runes & Summoner Spells
+    # ========================================================================
+
+    async def get_available_summoner_spells(
+        self, game_mode: str | None = None
+    ) -> list[SummonerSpell]:
+        """Return summoner spells valid for the given or active mock game mode."""
+        mode = game_mode or self._game_mode_context.game_mode
+        return get_spells_for_mode(mode)
+
+    async def set_summoner_spells(self, spell1_id: int, spell2_id: int) -> bool:
+        """Assign D and F summoner spells if valid for the active game mode."""
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+
+        valid_ids = {
+            s.id
+            for s in await self.get_available_summoner_spells(
+                self._game_mode_context.game_mode
+            )
+        }
+        if spell1_id not in valid_ids or spell2_id not in valid_ids or spell1_id == spell2_id:
+            return False
+
+        self.spell1_id = spell1_id
+        self.spell2_id = spell2_id
+
+        # Update active local player spells if session is open
+        if self._champ_select_session is not None:
+            local_p = self._champ_select_session.get_local_player()
+            if local_p is not None:
+                local_p.spell1_id = spell1_id
+                local_p.spell2_id = spell2_id
+            await self._dispatch_champ_select(self._champ_select_session)
+
+        return True
+
+    async def get_current_rune_page(self) -> RunePage | None:
+        """Retrieve mock active rune page."""
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return None
+        return self.current_rune_page
+
+    async def apply_rune_page(self, page: RunePage) -> bool:
+        """Apply new active rune page."""
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        self.current_rune_page = page
+        return True
+
+    async def get_recommended_rune_pages(
+        self,
+        champion_id: int,
+        position: str = "",
+        map_id: int = 11,
+    ) -> list[RecommendedRunePage]:
+        """Retrieve mock LCU recommended rune pages (up to 3) for the given champion."""
+        if self._status != LcuConnectionStatus.CONNECTED or champion_id <= 0:
+            return []
+        if self._recommended_pages_by_champ is not None:
+            return list(self._recommended_pages_by_champ.get(champion_id, []))
+        return _build_default_mock_recommended_pages(champion_id)
+
+    # ========================================================================
     # Test Simulation Helpers
     # ========================================================================
 
@@ -205,6 +326,7 @@ class MockLcuAdapter(ILcuPort):
         self.ready_check["state"] = "Invalid"
         self.ready_check["timer"] = 0.0
         self._champ_select_session = None
+        self.current_rune_page = None
         await self._dispatch_champ_select(None)
         logger.info("Mock LCU disconnected.")
 
@@ -216,7 +338,6 @@ class MockLcuAdapter(ILcuPort):
         self._phase = new_phase
         logger.info("Mock gameflow phase changed to: %s", new_phase.value)
 
-        # Notify subscribers safely (one subscriber's failure shouldn't block others)
         for cb in list(self._subscribers):
             try:
                 res = cb(new_phase)
@@ -244,6 +365,18 @@ class MockLcuAdapter(ILcuPort):
         if session is not None:
             await self.simulate_phase_change(GameflowPhase.CHAMP_SELECT)
         await self._dispatch_champ_select(session)
+
+    def set_game_mode_context(self, context: GameModeContext) -> None:
+        """Configure mock active game mode context (e.g., ARAM, Blind, Ranked, Unknown)."""
+        self._game_mode_context = context
+
+    def set_recommended_rune_pages(
+        self, champion_id: int, pages: list[RecommendedRunePage]
+    ) -> None:
+        """Configure explicit mock recommended rune pages for a champion (can be empty)."""
+        if self._recommended_pages_by_champ is None:
+            self._recommended_pages_by_champ = {}
+        self._recommended_pages_by_champ[champion_id] = list(pages)
 
     def set_grid_champions(self, champions: list[ChampionSummary]) -> None:
         """Configure mock available grid champions."""

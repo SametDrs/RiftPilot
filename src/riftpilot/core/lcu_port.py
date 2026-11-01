@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
+    from riftpilot.core.game_mode import GameModeContext
+    from riftpilot.core.runes_spells import RecommendedRunePage, RunePage, SummonerSpell
 
 
 class GameflowPhase(str, Enum):
@@ -84,8 +86,13 @@ class ILcuPort(ABC):
         ...
 
     # ========================================================================
-    # Champion Select Contract
+    # Game Mode & Champion Select Contract
     # ========================================================================
+
+    @abstractmethod
+    async def get_game_mode_context(self) -> GameModeContext:
+        """Retrieve active game mode, queue ID, and map metadata from LCU."""
+        ...
 
     @abstractmethod
     async def get_champ_select_session(self) -> ChampSelectSession | None:
@@ -119,6 +126,42 @@ class ILcuPort(ABC):
         self, callback: Callable[[ChampSelectSession | None], Any]
     ) -> bool:
         """Unregister a callback for champion select session state updates."""
+        ...
+
+    # ========================================================================
+    # Runes & Summoner Spells Contract
+    # ========================================================================
+
+    @abstractmethod
+    async def get_available_summoner_spells(
+        self, game_mode: str | None = None
+    ) -> list[SummonerSpell]:
+        """Return summoner spells valid for the given or active game mode."""
+        ...
+
+    @abstractmethod
+    async def set_summoner_spells(self, spell1_id: int, spell2_id: int) -> bool:
+        """Assign D and F summoner spells during champion select."""
+        ...
+
+    @abstractmethod
+    async def get_current_rune_page(self) -> RunePage | None:
+        """Retrieve the currently active rune page from LCU."""
+        ...
+
+    @abstractmethod
+    async def apply_rune_page(self, page: RunePage) -> bool:
+        """Create or update the active rune page in LCU."""
+        ...
+
+    @abstractmethod
+    async def get_recommended_rune_pages(
+        self,
+        champion_id: int,
+        position: str = "",
+        map_id: int = 11,
+    ) -> list[RecommendedRunePage]:
+        """Fetch official recommended rune pages from LCU for the champion (no fake data)."""
         ...
 
 

@@ -18,13 +18,38 @@ import httpx
 from riftpilot.adapters.lcu_discovery import LcuCredentials, LcuDiscoverer
 from riftpilot.adapters.lcu_stream import LcuEventStream
 from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
+from riftpilot.core.game_mode import GameModeContext
 from riftpilot.core.lcu_port import (
     GameflowPhase,
     ILcuPort,
     LcuConnectionStatus,
 )
+from riftpilot.core.runes_spells import (
+    RecommendedRunePage,
+    RunePage,
+    SummonerSpell,
+    get_spells_for_mode,
+)
 
 logger = logging.getLogger("RiftPilot.RiotLCU")
+
+
+def _normalize_lcu_position(position: str) -> str:
+    """Normalize position string to LCU recommender format (TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY, NONE)."""
+    pos = (position or "").strip().upper()
+    mapping = {
+        "TOP": "TOP",
+        "JUNGLE": "JUNGLE",
+        "MID": "MIDDLE",
+        "MIDDLE": "MIDDLE",
+        "BOT": "BOTTOM",
+        "BOTTOM": "BOTTOM",
+        "ADC": "BOTTOM",
+        "SUP": "UTILITY",
+        "SUPPORT": "UTILITY",
+        "UTILITY": "UTILITY",
+    }
+    return mapping.get(pos, "NONE")
 
 
 class RiotLcuAdapter(ILcuPort):
@@ -56,6 +81,7 @@ class RiotLcuAdapter(ILcuPort):
         self._champ_select_subscribers: list[
             Callable[[ChampSelectSession | None], Any]
         ] = []
+        self._cached_spells: list[SummonerSpell] | None = None
 
         if credentials is not None:
             self._set_connected(credentials)
@@ -140,11 +166,7 @@ class RiotLcuAdapter(ILcuPort):
                 logger.warning("Error in champ select subscriber: %s", exc)
 
     async def start_stream(self) -> bool:
-        """Start the real-time WebSocket event stream if credentials are configured.
-
-        Returns:
-            True if the stream connected and started listening, False otherwise.
-        """
+        """Start the real-time WebSocket event stream if credentials are configured."""
         if self._stream is not None:
             return await self._stream.start()
         return False
@@ -158,11 +180,7 @@ class RiotLcuAdapter(ILcuPort):
         return False
 
     async def connect(self) -> bool:
-        """Attempt to discover running League Client instance and connect.
-
-        Returns:
-            True if connection was established, False otherwise.
-        """
+        """Attempt to discover running League Client instance and connect."""
         creds = self._discover_credentials()
         if creds is not None:
             if self._client is not None and not self._client.is_closed:
@@ -185,9 +203,6 @@ class RiotLcuAdapter(ILcuPort):
         """Return the active gameflow phase of the League Client.
 
         Queries GET /lol-gameflow/v1/gameflow-phase.
-
-        Returns:
-            Active GameflowPhase enum value, or GameflowPhase.NONE on any error or disconnection.
         """
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return GameflowPhase.NONE
@@ -226,14 +241,24 @@ class RiotLcuAdapter(ILcuPort):
             logger.debug("Unknown gameflow phase received from LCU: %r", phase_str)
             return GameflowPhase.NONE
 
+    async def get_game_mode_context(self) -> GameModeContext:
+        """Retrieve active game mode, queue ID, and map metadata from `/lol-gameflow/v1/session`."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return GameModeContext(game_mode="CLASSIC", queue_id=420, map_id=11)
+
+        try:
+            response = await self._client.get("/lol-gameflow/v1/session")
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, dict):
+                    return GameModeContext.from_lcu_gameflow_session(data)
+        except Exception as exc:
+            logger.debug("Failed to fetch gameflow session context: %s", exc)
+
+        return GameModeContext(game_mode="CLASSIC", queue_id=420, map_id=11)
+
     async def accept_ready_check(self) -> bool:
-        """Accept an active ready check prompt on the League Client.
-
-        Sends POST /lol-matchmaking/v1/ready-check/accept.
-
-        Returns:
-            True if the prompt was successfully accepted (HTTP 200/204), False otherwise.
-        """
+        """Accept an active ready check prompt on the League Client."""
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return False
 
@@ -270,11 +295,7 @@ class RiotLcuAdapter(ILcuPort):
     def unsubscribe_phase_change(
         self, callback: Callable[[GameflowPhase], Any]
     ) -> bool:
-        """Unregister an existing phase change callback.
-
-        Returns:
-            True if the callback was registered and removed, False otherwise.
-        """
+        """Unregister an existing phase change callback."""
         if callback in self._subscribers:
             self._subscribers.remove(callback)
             return True
@@ -331,9 +352,6 @@ class RiotLcuAdapter(ILcuPort):
         Sends PATCH /lol-champ-select/v1/session/actions/{action_id}.
         If completed=True, additionally calls POST /lol-champ-select/v1/session/actions/{action_id}/complete.
         If completed=False, also updates /lol-champ-select/v1/session/my-selection pick intent.
-
-        Returns:
-            True if the action succeeded (HTTP 200/204), False otherwise.
         """
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return False
@@ -419,13 +437,7 @@ class RiotLcuAdapter(ILcuPort):
         return success
 
     async def get_grid_champions(self) -> list[ChampionSummary]:
-        """Return available/grid champions.
-
-        Sends GET /lol-champ-select/v1/all-grid-champions.
-
-        Returns:
-            List of ChampionSummary models, or empty list on failure.
-        """
+        """Return available/grid champions via GET /lol-champ-select/v1/all-grid-champions."""
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return []
 
@@ -470,15 +482,189 @@ class RiotLcuAdapter(ILcuPort):
     def unsubscribe_champ_select(
         self, callback: Callable[[ChampSelectSession | None], Any]
     ) -> bool:
-        """Unregister an existing champion select session callback.
-
-        Returns:
-            True if the callback was registered and removed, False otherwise.
-        """
+        """Unregister an existing champion select session callback."""
         if callback in self._champ_select_subscribers:
             self._champ_select_subscribers.remove(callback)
             return True
         return False
+
+    # ========================================================================
+    # ILcuPort Implementation — Runes & Summoner Spells
+    # ========================================================================
+
+    async def get_available_summoner_spells(
+        self, game_mode: str | None = None
+    ) -> list[SummonerSpell]:
+        """Return summoner spells valid for the given or active game mode.
+
+        Queries `/lol-game-data/assets/v1/summoner-spells.json` when available,
+        and filters by `gameModes`. Falls back to mode-filtered `STANDARD_SPELLS`
+        if the asset endpoint is unavailable.
+        """
+        effective_mode = game_mode
+        if not effective_mode and self._status == LcuConnectionStatus.CONNECTED:
+            ctx = await self.get_game_mode_context()
+            effective_mode = ctx.game_mode
+
+        catalog: list[SummonerSpell] | None = self._cached_spells
+        if catalog is None and self._status == LcuConnectionStatus.CONNECTED and self._client is not None:
+            try:
+                resp = await self._client.get("/lol-game-data/assets/v1/summoner-spells.json")
+                if resp.status_code == 200:
+                    raw_list = resp.json()
+                    if isinstance(raw_list, list):
+                        parsed: list[SummonerSpell] = []
+                        for entry in raw_list:
+                            if isinstance(entry, dict):
+                                sp = SummonerSpell.from_lcu_dict(entry)
+                                # Exclude placeholder/empty spells with no gameModes or negative/zero IDs
+                                if sp.id > 0 and sp.game_modes:
+                                    parsed.append(sp)
+                        if parsed:
+                            self._cached_spells = parsed
+                            catalog = parsed
+            except Exception as exc:
+                logger.debug("Could not fetch summoner-spells.json from LCU: %s", exc)
+
+        return get_spells_for_mode(effective_mode or "CLASSIC", catalog=catalog)
+
+    async def set_summoner_spells(self, spell1_id: int, spell2_id: int) -> bool:
+        """Assign D and F summoner spells during champion select.
+
+        Sends PATCH /lol-champ-select/v1/session/my-selection.
+        """
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+
+        payload = {
+            "spell1Id": spell1_id,
+            "spell2Id": spell2_id,
+        }
+
+        try:
+            response = await self._client.patch(
+                "/lol-champ-select/v1/session/my-selection",
+                json=payload,
+            )
+            return response.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to assign summoner spells: %s", exc)
+            return False
+
+    async def get_current_rune_page(self) -> RunePage | None:
+        """Fetch current active rune page from LCU."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return None
+
+        try:
+            response = await self._client.get("/lol-perks/v1/currentpage")
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, dict):
+                    return RunePage.from_lcu_dict(data)
+        except Exception as exc:
+            logger.debug("Failed to get current rune page: %s", exc)
+        return None
+
+    async def apply_rune_page(self, page: RunePage) -> bool:
+        """Apply rune page by updating an existing editable page or creating one."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+
+        lcu_payload = page.to_lcu_payload()
+
+        try:
+            # 1. Check existing rune pages
+            pages_resp = await self._client.get("/lol-perks/v1/pages")
+            target_page_id = None
+            if pages_resp.status_code == 200:
+                pages_data = pages_resp.json()
+                if isinstance(pages_data, list):
+                    for p in pages_data:
+                        if isinstance(p, dict) and p.get("isEditable"):
+                            target_page_id = p.get("id")
+                            break
+
+            # 2. Update existing editable page if available
+            if target_page_id:
+                put_resp = await self._client.put(
+                    f"/lol-perks/v1/pages/{target_page_id}",
+                    json=lcu_payload,
+                )
+                if put_resp.status_code in (200, 204):
+                    return True
+
+            # 3. Otherwise create new page
+            post_resp = await self._client.post(
+                "/lol-perks/v1/pages",
+                json=lcu_payload,
+            )
+            return post_resp.status_code in (200, 201, 204)
+
+        except Exception as exc:
+            logger.warning("Failed to apply rune page: %s", exc)
+            return False
+
+    async def get_recommended_rune_pages(
+        self,
+        champion_id: int,
+        position: str = "",
+        map_id: int = 11,
+    ) -> list[RecommendedRunePage]:
+        """Fetch the client's official recommended rune pages for the given champion.
+
+        Queries `GET /lol-perks/v1/recommended-pages/champion/{championId}/position/{position}/map/{mapId}`.
+        If empty for a specific lane, falls back to `position=NONE` on the same map.
+        Never fabricates or substitutes fake rune pages.
+        """
+        if (
+            self._status != LcuConnectionStatus.CONNECTED
+            or self._client is None
+            or champion_id <= 0
+        ):
+            return []
+
+        norm_pos = _normalize_lcu_position(position)
+        eff_map = map_id if map_id > 0 else 11
+        positions_to_try = [norm_pos]
+        if norm_pos != "NONE":
+            positions_to_try.append("NONE")
+
+        for pos_candidate in positions_to_try:
+            endpoint = (
+                f"/lol-perks/v1/recommended-pages/champion/{champion_id}"
+                f"/position/{pos_candidate}/map/{eff_map}"
+            )
+            try:
+                resp = await self._client.get(endpoint)
+            except Exception as exc:
+                logger.debug("Failed to query recommended rune pages (%s): %s", endpoint, exc)
+                continue
+
+            if resp.status_code != 200:
+                continue
+
+            try:
+                raw_data = resp.json()
+            except Exception:
+                continue
+
+            if not isinstance(raw_data, list) or not raw_data:
+                continue
+
+            pages: list[RecommendedRunePage] = []
+            for idx, item in enumerate(raw_data[:3]):
+                if isinstance(item, dict):
+                    parsed = RecommendedRunePage.from_lcu_dict(
+                        item, champion_id=champion_id, index=idx
+                    )
+                    if parsed is not None:
+                        pages.append(parsed)
+
+            if pages:
+                return pages
+
+        return []
 
     async def close(self) -> None:
         """Close internal HTTPX client and WebSocket stream, releasing resources."""

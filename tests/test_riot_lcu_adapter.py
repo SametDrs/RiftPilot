@@ -110,6 +110,12 @@ class TestRiotLcuAdapterContract:
             "accept_ready_check",
             "subscribe_phase_change",
             "unsubscribe_phase_change",
+            "set_summoner_spells",
+            "get_current_rune_page",
+            "apply_rune_page",
+            "get_game_mode_context",
+            "get_available_summoner_spells",
+            "get_recommended_rune_pages",
         ]
         for method_name in required_methods:
             assert hasattr(adapter, method_name), (
@@ -630,3 +636,233 @@ class TestRiotLcuAdapterShiftLeftEdgeCases:
         reconnect_success = await adapter.connect()
         assert reconnect_success is True
         assert await adapter.get_connection_status() == LcuConnectionStatus.CONNECTED
+
+
+# ============================================================================
+# 8. Runes & Summoner Spells Tests
+# ============================================================================
+
+
+class TestRiotLcuRunesAndSpells:
+    """Verifies summoner spells and runes operations against LCU REST endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_set_summoner_spells_disconnected_returns_false(
+        self, sample_credentials: LcuCredentials
+    ) -> None:
+        """When disconnected, set_summoner_spells should return False immediately."""
+        adapter = RiotLcuAdapter(credentials=sample_credentials)
+        adapter._status = LcuConnectionStatus.DISCONNECTED
+        result = await adapter.set_summoner_spells(4, 14)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_set_summoner_spells_success(
+        self, sample_credentials: LcuCredentials
+    ) -> None:
+        """Sends PATCH /lol-champ-select/v1/session/my-selection with spell IDs."""
+        captured_requests = []
+
+        def handler(request):
+            captured_requests.append(request)
+            if "/lol-champ-select/v1/session/my-selection" in str(request.url):
+                return httpx.Response(204, request=request)
+            return httpx.Response(404, request=request)
+
+        adapter = RiotLcuAdapter(
+            credentials=sample_credentials,
+            transport=httpx.MockTransport(handler),
+        )
+        adapter._status = LcuConnectionStatus.CONNECTED
+
+        success = await adapter.set_summoner_spells(4, 14)
+        assert success is True
+        assert len(captured_requests) == 1
+        req = captured_requests[0]
+        assert req.method == "PATCH"
+        assert b"4" in req.content and b"14" in req.content
+
+    @pytest.mark.asyncio
+    async def test_set_summoner_spells_handles_lcu_error(
+        self, sample_credentials: LcuCredentials
+    ) -> None:
+        """LCU 500 error or connection failure returns False gracefully."""
+        adapter = RiotLcuAdapter(
+            credentials=sample_credentials,
+            transport=make_mock_transport(status_code=500),
+        )
+        adapter._status = LcuConnectionStatus.CONNECTED
+        success = await adapter.set_summoner_spells(4, 14)
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_get_current_rune_page_success(
+        self, sample_credentials: LcuCredentials
+    ) -> None:
+        """Retrieves and parses current rune page from /lol-perks/v1/currentpage."""
+        payload = {
+            "id": 101,
+            "name": "Yasuo Mid",
+            "primaryStyleId": 8000,
+            "subStyleId": 8400,
+            "selectedPerkIds": [8010, 9111, 9104, 8299, 8444, 8453, 5005, 5008, 5002],
+            "current": True,
+            "isEditable": True,
+        }
+        adapter = RiotLcuAdapter(
+            credentials=sample_credentials,
+            transport=make_mock_transport(status_code=200, json_data=payload),
+        )
+        adapter._status = LcuConnectionStatus.CONNECTED
+
+        page = await adapter.get_current_rune_page()
+        assert page is not None
+        assert page.id == 101
+        assert page.name == "Yasuo Mid"
+        assert page.primary_style_id == 8000
+        assert page.selected_perk_ids == payload["selectedPerkIds"]
+
+    @pytest.mark.asyncio
+    async def test_get_current_rune_page_disconnected_or_404(
+        self, sample_credentials: LcuCredentials
+    ) -> None:
+        """Returns None if disconnected or if endpoint returns 404."""
+        adapter = RiotLcuAdapter(
+            credentials=sample_credentials,
+            transport=make_mock_transport(status_code=404),
+        )
+        assert await adapter.get_current_rune_page() is None
+
+        adapter._status = LcuConnectionStatus.CONNECTED
+        assert await adapter.get_current_rune_page() is None
+
+    @pytest.mark.asyncio
+    async def test_apply_rune_page_updates_existing_editable_page(
+        self, sample_credentials: LcuCredentials
+    ) -> None:
+        """If an editable page exists, PUT /lol-perks/v1/pages/{id} is called."""
+        from riftpilot.core.runes_spells import RunePage
+
+        requested_urls = []
+
+        def handler(request):
+            url_str = str(request.url)
+            requested_urls.append(f"{request.method} {url_str}")
+            if request.method == "GET" and "/lol-perks/v1/pages" in url_str:
+                pages = [
+                    {"id": 1, "name": "Riot Default", "isEditable": False},
+                    {"id": 42, "name": "Custom 1", "isEditable": True},
+                ]
+                return httpx.Response(200, json=pages, request=request)
+            if request.method == "PUT" and "/lol-perks/v1/pages/42" in url_str:
+                return httpx.Response(200, json={"success": True}, request=request)
+            return httpx.Response(400, request=request)
+
+        adapter = RiotLcuAdapter(
+            credentials=sample_credentials,
+            transport=httpx.MockTransport(handler),
+        )
+        adapter._status = LcuConnectionStatus.CONNECTED
+
+        new_page = RunePage(
+            name="RiftPilot Ahri",
+            primary_style_id=8100,
+            sub_style_id=8200,
+            selected_perk_ids=[8112, 8143, 8138, 8106, 8226, 8233, 5008, 5008, 5003],
+        )
+
+        success = await adapter.apply_rune_page(new_page)
+        assert success is True
+        assert any("PUT" in u and "/42" in u for u in requested_urls)
+
+    @pytest.mark.asyncio
+    async def test_apply_rune_page_creates_new_page_when_no_editable(
+        self, sample_credentials: LcuCredentials
+    ) -> None:
+        """If no editable page exists, POST /lol-perks/v1/pages is called."""
+        from riftpilot.core.runes_spells import RunePage
+
+        requested_urls = []
+
+        def handler(request):
+            url_str = str(request.url)
+            requested_urls.append(f"{request.method} {url_str}")
+            if request.method == "GET" and "/lol-perks/v1/pages" in url_str:
+                pages = [{"id": 1, "name": "Riot Default", "isEditable": False}]
+                return httpx.Response(200, json=pages, request=request)
+            if request.method == "POST" and "/lol-perks/v1/pages" in url_str:
+                return httpx.Response(201, json={"id": 99}, request=request)
+            return httpx.Response(400, request=request)
+
+        adapter = RiotLcuAdapter(
+            credentials=sample_credentials,
+            transport=httpx.MockTransport(handler),
+        )
+        adapter._status = LcuConnectionStatus.CONNECTED
+
+        new_page = RunePage(
+            name="RiftPilot Lee Sin",
+            primary_style_id=8000,
+            sub_style_id=8300,
+            selected_perk_ids=[8010, 9111, 9104, 8299, 8304, 8345, 5005, 5008, 5002],
+        )
+
+        success = await adapter.apply_rune_page(new_page)
+        assert success is True
+        assert any("POST" in u for u in requested_urls)
+
+    @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_get_recommended_rune_pages_from_lcu_and_empty_on_404(
+        self, sample_credentials: LcuCredentials
+    ) -> None:
+        """Queries official LCU recommended-pages endpoint and never fabricates data on 404."""
+        sample_rec = [
+            {
+                "name": "Ahri Burst",
+                "primaryStyleId": 8100,
+                "subStyleId": 8200,
+                "selectedPerkIds": [8112, 8143, 8138, 8106, 8226, 8210, 5008, 5008, 5001],
+            },
+            {
+                "name": "Ahri Poke",
+                "primaryStyleId": 8200,
+                "subStyleId": 8300,
+                "selectedPerkIds": [8214, 8226, 8210, 8237, 8304, 8345, 5008, 5008, 5001],
+            },
+            {
+                "name": "Ahri Utility",
+                "primaryStyleId": 8300,
+                "subStyleId": 8200,
+                "selectedPerkIds": [8351, 8304, 8345, 8347, 8226, 8210, 5007, 5008, 5001],
+            },
+        ]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url_str = str(request.url)
+            if "/lol-perks/v1/recommended-pages/champion/103/position/MIDDLE/map/11" in url_str:
+                return httpx.Response(200, json=sample_rec, request=request)
+            return httpx.Response(404, request=request)
+
+        adapter = RiotLcuAdapter(
+            credentials=sample_credentials,
+            transport=httpx.MockTransport(handler),
+        )
+        adapter._status = LcuConnectionStatus.CONNECTED
+
+        pages = await adapter.get_recommended_rune_pages(103, position="middle", map_id=11)
+        assert len(pages) == 3
+        assert pages[0].name == "Ahri Burst"
+        assert pages[0].primary_style_id == 8100
+
+        empty = await adapter.get_recommended_rune_pages(999, position="top", map_id=11)
+        assert empty == []
+
+    async def _legacy_placeholder(
+        self, sample_credentials: LcuCredentials
+    ) -> None:
+        """Returns preset runes for champion."""
+        adapter = RiotLcuAdapter(credentials=sample_credentials)
+        pages = await adapter.get_recommended_rune_pages(103)
+        assert pages == []
+        assert len(pages) == 0
