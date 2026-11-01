@@ -36,10 +36,14 @@ RiftPilot/
 
 ## 📚 Dokümantasyon ve Mimari Kararlar
 
-Projenin teknik omurgası Mimari Karar Kayıtları (ADR) ile belgelenir:
+Projenin teknik omurgası ve mühendislik kuralları aşağıdaki kaynaklarda belgelenmiştir:
 
+- [GEMINI.md](GEMINI.md) — AI Agent ve Temel Mühendislik Kuralları
 - [ADR Dizini](docs/adr/)
-- [ADR-0001: Architecture Decision Records Adoption](docs/adr/0001-record-architecture-decisions.md)
+  - [ADR-0001: Architecture Decision Records Adoption](docs/adr/0001-record-architecture-decisions.md)
+  - [ADR-0002: Teknoloji Yığını (Python 3.14, PySide6 & FastAPI)](docs/adr/0002-technology-stack-pyside6-python.md)
+  - [ADR-0003: Hexagonal Mimari & Taşıyıcıdan Bağımsız İletişim](docs/adr/0003-hexagonal-transport-agnostic-architecture.md)
+  - [ADR-0004: QR Kod Eşleştirme & Cihaz Oturum Güvenliği](docs/adr/0004-qr-pairing-and-device-session-security.md)
 - [Git & Geliştirme İş Akışı](docs/workflows/git-workflow.md)
 
 ---
