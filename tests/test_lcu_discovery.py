@@ -561,8 +561,15 @@ class TestLcuDiscoverer:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Zombie processes encountered during iteration must not crash discovery."""
-        zombie_proc = _create_mock_process(name="LeagueClientUx.exe", pid=6666)
+        zombie_proc = _create_mock_process(
+            name="LeagueClientUx.exe",
+            pid=6666,
+            cwd="C:\\nonexistent_zombie_path",
+            exe="C:\\nonexistent_zombie_path\\LeagueClientUx.exe",
+        )
         zombie_proc.cmdline.side_effect = psutil.ZombieProcess(pid=6666)
+        zombie_proc.cwd.side_effect = psutil.ZombieProcess(pid=6666)
+        zombie_proc.exe.side_effect = psutil.ZombieProcess(pid=6666)
 
         monkeypatch.setattr(psutil, "process_iter", lambda *args, **kwargs: [zombie_proc])
 

@@ -4,6 +4,9 @@ Implements the desktop companion GUI:
 - Displays local LAN pairing QR code with auto-refresh / manual refresh.
 - Displays active LAN hub endpoint (IP:Port).
 - Manages connected mobile device sessions with live revocation controls.
+- Displays League Client (LCU) connection status and live gameflow phase.
+- Thread-safe LCU UI Bridge for cross-thread async Qt signaling.
+- Periodic timer synchronization for real-time device updates and LCU monitoring.
 - Provides dark-themed modern desktop aesthetic.
 """
 
@@ -12,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, QTimer, Qt, Signal
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QFrame,
@@ -26,6 +29,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from riftpilot.core.lcu_port import (
+    GameflowPhase,
+    ILcuPort,
+    LcuConnectionStatus,
+)
 from riftpilot.ui.qr_helper import generate_qr_pixmap
 
 if TYPE_CHECKING:
@@ -106,6 +114,50 @@ QListWidget::item {
 """
 
 
+class LcuUiBridge(QObject):
+    """PySide6 QObject bridge translating async/background LCU events to Qt signals."""
+
+    phase_changed = Signal(object)
+    connection_status_changed = Signal(object)
+    device_list_changed = Signal()
+
+    def __init__(
+        self,
+        lcu_adapter: ILcuPort | None = None,
+        parent: QObject | None = None,
+    ) -> None:
+        """Initialize LCU bridge and optionally subscribe to adapter events.
+
+        Args:
+            lcu_adapter: Optional outbound LCU adapter.
+            parent: Optional parent QObject.
+        """
+        super().__init__(parent)
+        self.lcu_adapter = lcu_adapter
+        if self.lcu_adapter is not None:
+            self.lcu_adapter.subscribe_phase_change(self.notify_phase_change)
+
+    def notify_phase_change(self, phase: GameflowPhase | str) -> None:
+        """Emit phase_changed signal in a thread-safe manner."""
+        self.phase_changed.emit(phase)
+
+    def on_phase_change(self, phase: GameflowPhase | str) -> None:
+        """Callback alias for notify_phase_change."""
+        self.notify_phase_change(phase)
+
+    def notify_status_change(self, status: LcuConnectionStatus | str) -> None:
+        """Emit connection_status_changed signal."""
+        self.connection_status_changed.emit(status)
+
+    def on_status_change(self, status: LcuConnectionStatus | str) -> None:
+        """Callback alias for notify_status_change."""
+        self.notify_status_change(status)
+
+    def notify_device_list_changed(self) -> None:
+        """Emit device_list_changed signal."""
+        self.device_list_changed.emit()
+
+
 class MainWindow(QMainWindow):
     """Main desktop application window for RiftPilot."""
 
@@ -115,6 +167,7 @@ class MainWindow(QMainWindow):
         session_manager: SessionManager,
         lan_ip: str,
         port: int,
+        lcu_adapter: ILcuPort | None = None,
         parent: QWidget | None = None,
     ) -> None:
         """Initialize the desktop companion window.
@@ -124,21 +177,49 @@ class MainWindow(QMainWindow):
             session_manager: Core domain device session manager.
             lan_ip: Active local IPv4 address of the host machine.
             port: Local HTTP/WS port.
+            lcu_adapter: Optional outbound LCU port adapter.
             parent: Optional parent QWidget.
         """
+        if isinstance(lcu_adapter, QWidget) and parent is None:
+            parent = lcu_adapter
+            lcu_adapter = None
+
         super().__init__(parent)
         self.ott_manager = ott_manager
         self.session_manager = session_manager
         self.lan_ip = lan_ip
         self.port = port
+        self.lcu_adapter = lcu_adapter
 
         self.setWindowTitle("RiftPilot — League Remote Companion")
-        self.resize(420, 640)
+        self.resize(420, 680)
         self.setStyleSheet(DARK_STYLE)
 
         self._setup_ui()
+
+        # Thread-safe UI bridge for LCU events
+        self.bridge = LcuUiBridge(lcu_adapter=self.lcu_adapter, parent=self)
+        self.bridge.phase_changed.connect(self.on_gameflow_phase_changed)
+        self.bridge.connection_status_changed.connect(self.on_lcu_status_changed)
+        self.bridge.device_list_changed.connect(self.update_device_list)
+
         self.refresh_qr()
         self.update_device_list()
+
+        # Check initial connection status if adapter is already connected
+        if self.lcu_adapter is not None:
+            creds = getattr(self.lcu_adapter, "credentials", None)
+            stat = getattr(self.lcu_adapter, "_status", None)
+            if creds is not None or stat == LcuConnectionStatus.CONNECTED:
+                self.on_lcu_status_changed(LcuConnectionStatus.CONNECTED)
+            else:
+                self.on_lcu_status_changed(LcuConnectionStatus.DISCONNECTED)
+
+        # Periodic timer for auto-updating device list and connection sync
+        self.poll_timer = QTimer(self)
+        self.poll_timer.setInterval(1500)
+        self.poll_timer.timeout.connect(self._on_poll_tick)
+        self.poll_timer.start()
 
     def _setup_ui(self) -> None:
         """Construct child layout and widgets."""
@@ -173,7 +254,24 @@ class MainWindow(QMainWindow):
         self.lan_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(self.lan_info_label)
 
-        # 3. QR Code Card
+        # 3. LCU & Game Status Card
+        lcu_card = QFrame(self)
+        lcu_card.setObjectName("card")
+        lcu_layout = QVBoxLayout(lcu_card)
+        lcu_layout.setContentsMargins(12, 10, 12, 10)
+        lcu_layout.setSpacing(6)
+
+        self.lcu_status_label = QLabel("🔴 LoL İstemcisi: İstemci Bekleniyor...", self)
+        self.lcu_status_label.setObjectName("subtitle")
+        lcu_layout.addWidget(self.lcu_status_label)
+
+        self.gameflow_label = QLabel("🎮 Oyun Durumu: -", self)
+        self.gameflow_label.setObjectName("subtitle")
+        lcu_layout.addWidget(self.gameflow_label)
+
+        main_layout.addWidget(lcu_card)
+
+        # 4. QR Code Card
         qr_card = QFrame(self)
         qr_card.setObjectName("card")
         qr_layout = QVBoxLayout(qr_card)
@@ -195,7 +293,7 @@ class MainWindow(QMainWindow):
         qr_layout.addWidget(self.refresh_button)
         main_layout.addWidget(qr_card)
 
-        # 4. Connected Devices Section
+        # 5. Connected Devices Section
         devices_header_layout = QHBoxLayout()
         devices_title = QLabel("📱 Bağlı Cihazlar", self)
         devices_title.setObjectName("title")
@@ -211,6 +309,17 @@ class MainWindow(QMainWindow):
         self.device_list = QListWidget(self)
         self.device_list.setMaximumHeight(160)
         main_layout.addWidget(self.device_list)
+
+    def _on_poll_tick(self) -> None:
+        """Periodic sync for active device sessions and connection status."""
+        self.update_device_list()
+        if self.lcu_adapter is not None:
+            creds = getattr(self.lcu_adapter, "credentials", None)
+            stat = getattr(self.lcu_adapter, "_status", None)
+            if creds is not None or stat == LcuConnectionStatus.CONNECTED:
+                self.on_lcu_status_changed(LcuConnectionStatus.CONNECTED)
+            else:
+                self.on_lcu_status_changed(LcuConnectionStatus.DISCONNECTED)
 
     def refresh_qr(self) -> None:
         """Generate a new OTT token and update the displayed QR pixmap."""
@@ -283,5 +392,38 @@ class MainWindow(QMainWindow):
         self.update_device_list()
         return result
 
+    def on_gameflow_phase_changed(self, phase: GameflowPhase | str) -> None:
+        """Update gameflow status label based on client phase."""
+        phase_str = phase.value if hasattr(phase, "value") else str(phase)
+        if phase == GameflowPhase.READY_CHECK or phase_str == "ReadyCheck":
+            self.gameflow_label.setText("⚔️ MAÇ BULUNDU!")
+        elif phase == GameflowPhase.MATCHMAKING or phase_str == "Matchmaking":
+            self.gameflow_label.setText("⏳ Sırada...")
+        elif phase == GameflowPhase.CHAMP_SELECT or phase_str == "ChampSelect":
+            self.gameflow_label.setText("🏆 Şampiyon Seçimi")
+        elif phase == GameflowPhase.IN_PROGRESS or phase_str == "InProgress":
+            self.gameflow_label.setText("🔥 Oyunda")
+        elif phase == GameflowPhase.LOBBY or phase_str == "Lobby":
+            self.gameflow_label.setText("🏠 Lobide")
+        elif phase == GameflowPhase.NONE or phase_str == "None":
+            self.gameflow_label.setText("🎮 Oyun Durumu: -")
+        else:
+            self.gameflow_label.setText(f"🎮 Oyun Durumu: {phase_str}")
 
-__all__ = ["MainWindow"]
+    def on_lcu_status_changed(self, status: LcuConnectionStatus | str) -> None:
+        """Update LCU connection status badge."""
+        status_str = status.value if hasattr(status, "value") else str(status)
+        if status == LcuConnectionStatus.CONNECTED or status_str.lower() in ("connected", "true"):
+            port_info = ""
+            if self.lcu_adapter and getattr(self.lcu_adapter, "credentials", None):
+                port_info = f" (Port: {self.lcu_adapter.credentials.port})"
+            self.lcu_status_label.setText(f"🟢 LoL İstemcisi: LCU Bağlandı{port_info}")
+        else:
+            self.lcu_status_label.setText("🔴 LoL İstemcisi: İstemci Bekleniyor...")
+
+    # Compatibility aliases
+    on_phase_changed = on_gameflow_phase_changed
+    set_lcu_status = on_lcu_status_changed
+
+
+__all__ = ["LcuUiBridge", "MainWindow"]
