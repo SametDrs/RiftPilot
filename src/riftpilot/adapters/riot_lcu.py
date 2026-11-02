@@ -24,6 +24,12 @@ from riftpilot.core.lcu_port import (
     ILcuPort,
     LcuConnectionStatus,
 )
+from riftpilot.core.lobby import (
+    BenchChampion,
+    ChampSelectTrade,
+    LobbyData,
+    MatchmakingSearchState,
+)
 from riftpilot.core.runes_spells import (
     RecommendedRunePage,
     RunePage,
@@ -81,6 +87,7 @@ class RiotLcuAdapter(ILcuPort):
         self._champ_select_subscribers: list[
             Callable[[ChampSelectSession | None], Any]
         ] = []
+        self._lobby_subscribers: list[Callable[[LobbyData | None], Any]] = []
         self._cached_spells: list[SummonerSpell] | None = None
 
         if credentials is not None:
@@ -132,6 +139,7 @@ class RiotLcuAdapter(ILcuPort):
             on_phase_change=self._on_stream_phase_change,
         )
         self._stream.add_champ_select_callback(self._on_stream_champ_select_change)
+        self._stream.add_lobby_callback(self._on_stream_lobby_change)
 
     @property
     def credentials(self) -> LcuCredentials | None:
@@ -164,6 +172,18 @@ class RiotLcuAdapter(ILcuPort):
                     await res
             except Exception as exc:
                 logger.warning("Error in champ select subscriber: %s", exc)
+
+    async def _on_stream_lobby_change(
+        self, lobby: LobbyData | None
+    ) -> None:
+        """Internal callback invoked by LcuEventStream when lobby updates."""
+        for subscriber in list(self._lobby_subscribers):
+            try:
+                res = subscriber(lobby)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as exc:
+                logger.warning("Error in lobby subscriber: %s", exc)
 
     async def start_stream(self) -> bool:
         """Start the real-time WebSocket event stream if credentials are configured."""
@@ -304,6 +324,202 @@ class RiotLcuAdapter(ILcuPort):
     # ========================================================================
     # ILcuPort Implementation — Champion Select
     # ========================================================================
+
+    # ========================================================================
+    # Lobby & Matchmaking Implementation (Milestone 4)
+    # ========================================================================
+
+    async def get_lobby(self) -> LobbyData | None:
+        """Retrieve active party lobby data from LCU."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return None
+        try:
+            resp = await self._client.get("/lol-lobby/v2/lobby")
+            if resp.status_code == 200:
+                data = resp.json()
+                return LobbyData.from_lcu_dict(data)
+            return None
+        except Exception as exc:
+            logger.debug("Failed to get lobby data: %s", exc)
+            return None
+
+    async def start_matchmaking(self) -> bool:
+        """Initiate matchmaking search for the active party lobby."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post("/lol-lobby/v2/lobby/matchmaking/search")
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to start matchmaking: %s", exc)
+            return False
+
+    async def cancel_matchmaking(self) -> bool:
+        """Cancel ongoing matchmaking search."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.delete("/lol-lobby/v2/lobby/matchmaking/search")
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to cancel matchmaking: %s", exc)
+            return False
+
+    async def set_position_preferences(self, first: str, second: str) -> bool:
+        """Update role preferences for the local member."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            payload = {
+                "firstPreference": first.upper(),
+                "secondPreference": second.upper(),
+            }
+            resp = await self._client.put(
+                "/lol-lobby/v2/lobby/members/localMember/position-preferences",
+                json=payload,
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to set position preferences: %s", exc)
+            return False
+
+    async def get_matchmaking_search(self) -> MatchmakingSearchState | None:
+        """Retrieve real-time matchmaking queue search status."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return None
+        try:
+            resp = await self._client.get("/lol-matchmaking/v1/search")
+            if resp.status_code == 200:
+                data = resp.json()
+                return MatchmakingSearchState.from_lcu_dict(data)
+            return None
+        except Exception as exc:
+            logger.debug("Failed to get matchmaking search state: %s", exc)
+            return None
+
+    def subscribe_lobby(
+        self, callback: Callable[[LobbyData | None], Any]
+    ) -> None:
+        """Register a callback for party lobby updates."""
+        if callback not in self._lobby_subscribers:
+            self._lobby_subscribers.append(callback)
+
+    def unsubscribe_lobby(
+        self, callback: Callable[[LobbyData | None], Any]
+    ) -> bool:
+        """Unregister an existing lobby update callback."""
+        if callback in self._lobby_subscribers:
+            self._lobby_subscribers.remove(callback)
+            return True
+        return False
+
+    # ========================================================================
+    # ARAM Bench & Trades Implementation (Milestone 4)
+    # ========================================================================
+
+    async def bench_swap(self, champion_id: int) -> bool:
+        """Swap current champion with one from the ARAM bench."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                f"/lol-champ-select/v1/session/bench/swap/{champion_id}"
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to swap bench champion %d: %s", champion_id, exc)
+            return False
+
+    async def reroll(self) -> bool:
+        """Reroll current champion in ARAM."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                "/lol-champ-select/v1/session/my-selection/reroll"
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to reroll champion: %s", exc)
+            return False
+
+    async def get_bench_champions(self) -> list[BenchChampion]:
+        """Return list of champions available on the bench."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return []
+        try:
+            resp = await self._client.get("/lol-champ-select/v1/session")
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            raw_bench = data.get("benchChampions", [])
+            bench: list[BenchChampion] = []
+            if isinstance(raw_bench, list):
+                for b in raw_bench:
+                    if isinstance(b, dict):
+                        c_id = b.get("championId")
+                        if c_id:
+                            bench.append(BenchChampion(champion_id=int(c_id)))
+            return bench
+        except Exception as exc:
+            logger.debug("Failed to get bench champions: %s", exc)
+            return []
+
+    async def get_trades(self) -> list[ChampSelectTrade]:
+        """Return current champion select trades."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return []
+        try:
+            resp = await self._client.get("/lol-champ-select/v1/session/trades")
+            if resp.status_code != 200:
+                return []
+            raw_trades = resp.json()
+            trades: list[ChampSelectTrade] = []
+            if isinstance(raw_trades, list):
+                for t in raw_trades:
+                    parsed = ChampSelectTrade.from_lcu_dict(t)
+                    if parsed:
+                        trades.append(parsed)
+            return trades
+        except Exception as exc:
+            logger.debug("Failed to get trades: %s", exc)
+            return []
+
+    async def request_trade(self, trade_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                f"/lol-champ-select/v1/session/trades/{trade_id}/request"
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to request trade %d: %s", trade_id, exc)
+            return False
+
+    async def accept_trade(self, trade_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                f"/lol-champ-select/v1/session/trades/{trade_id}/accept"
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to accept trade %d: %s", trade_id, exc)
+            return False
+
+    async def decline_trade(self, trade_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                f"/lol-champ-select/v1/session/trades/{trade_id}/decline"
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to decline trade %d: %s", trade_id, exc)
+            return False
 
     async def get_champ_select_session(self) -> ChampSelectSession | None:
         """Return current champion select session, or None if inactive."""

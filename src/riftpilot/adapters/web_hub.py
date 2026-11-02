@@ -2368,6 +2368,15 @@ class SetSpellsRequest(BaseModel):
     spell2Id: int = Field(..., description="Spell 2 (F) numeric ID")
 
 
+
+class SetPositionPreferencesRequest(BaseModel):
+    first: str = Field(..., description="First position preference (TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY, FILL)")
+    second: str = Field(..., description="Second position preference")
+
+
+class BenchSwapRequest(BaseModel):
+    championId: int = Field(..., gt=0, description="Champion ID on the bench to swap with")
+
 class ApplyRunePageRequest(BaseModel):
     """Payload schema for applying a user-selected rune page."""
 
@@ -2835,6 +2844,83 @@ def create_app(
             raise HTTPException(status_code=400, detail="Rün sayfası istemciye uygulanamadı.")
         return {"success": True}
 
+
+    # =========================================================================
+    # Lobby & Matchmaking Endpoints (Milestone 4)
+    # =========================================================================
+
+    @app.get("/api/lobby")
+    async def get_lobby_endpoint() -> dict[str, Any]:
+        """Retrieve party lobby state and matchmaking status."""
+        if lcu_adapter is None:
+            return {"lobby": None, "search": None}
+        lobby = await lcu_adapter.get_lobby()
+        search = await lcu_adapter.get_matchmaking_search()
+        return {
+            "lobby": lobby.model_dump() if lobby else None,
+            "search": search.model_dump() if search else None,
+        }
+
+    @app.post("/api/lobby/matchmaking/start")
+    async def start_matchmaking_endpoint() -> dict[str, Any]:
+        """Start matchmaking for the active lobby."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.start_matchmaking()
+        return {"success": success}
+
+    @app.post("/api/lobby/matchmaking/cancel")
+    async def cancel_matchmaking_endpoint() -> dict[str, Any]:
+        """Cancel ongoing matchmaking search."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.cancel_matchmaking()
+        return {"success": success}
+
+    @app.put("/api/lobby/preferences")
+    async def set_preferences_endpoint(payload: SetPositionPreferencesRequest) -> dict[str, Any]:
+        """Set position preferences for the local lobby member."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.set_position_preferences(payload.first, payload.second)
+        return {"success": success}
+
+    # =========================================================================
+    # ARAM Bench & Trades Endpoints (Milestone 4)
+    # =========================================================================
+
+    @app.get("/api/champ-select/bench")
+    async def get_bench_endpoint() -> dict[str, Any]:
+        """Retrieve available champions on the ARAM bench."""
+        if lcu_adapter is None:
+            return {"bench": []}
+        bench = await lcu_adapter.get_bench_champions()
+        return {"bench": [b.model_dump() for b in bench]}
+
+    @app.post("/api/champ-select/bench/swap")
+    async def bench_swap_endpoint(payload: BenchSwapRequest) -> dict[str, Any]:
+        """Swap champion with one on the bench."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.bench_swap(payload.championId)
+        return {"success": success, "championId": payload.championId}
+
+    @app.post("/api/champ-select/reroll")
+    async def reroll_endpoint() -> dict[str, Any]:
+        """Reroll champion in ARAM."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.reroll()
+        return {"success": success}
+
+    @app.get("/api/champ-select/trades")
+    async def get_trades_endpoint() -> dict[str, Any]:
+        """Retrieve current champion select trades."""
+        if lcu_adapter is None:
+            return {"trades": []}
+        trades = await lcu_adapter.get_trades()
+        return {"trades": [t.model_dump() for t in trades]}
+
     # =========================================================================
     # WebSocket Route
     # =========================================================================
@@ -3069,6 +3155,44 @@ def create_app(
                             "error": err_msg,
                         }
                     )
+                elif cmd_type == "GET_LOBBY":
+                    lobby_obj = await lcu_adapter.get_lobby() if lcu_adapter else None
+                    search_obj = await lcu_adapter.get_matchmaking_search() if lcu_adapter else None
+                    await websocket.send_json({
+                        "type": "LOBBY_UPDATE",
+                        "lobby": lobby_obj.model_dump() if lobby_obj else None,
+                        "search": search_obj.model_dump() if search_obj else None,
+                    })
+                elif cmd_type == "START_MATCHMAKING":
+                    success = await lcu_adapter.start_matchmaking() if lcu_adapter else False
+                    await websocket.send_json({"type": "MATCHMAKING_STARTED", "success": success})
+                elif cmd_type == "CANCEL_MATCHMAKING":
+                    success = await lcu_adapter.cancel_matchmaking() if lcu_adapter else False
+                    await websocket.send_json({"type": "MATCHMAKING_CANCELED", "success": success})
+                elif cmd_type == "SET_POSITION_PREFERENCES":
+                    first = str(data.get("first", "") or "")
+                    second = str(data.get("second", "") or "")
+                    success = await lcu_adapter.set_position_preferences(first, second) if lcu_adapter else False
+                    await websocket.send_json({"type": "POSITION_PREFERENCES_RESULT", "success": success, "first": first, "second": second})
+                elif cmd_type == "BENCH_SWAP":
+                    champ_id = int(data.get("championId", 0) or 0)
+                    success = await lcu_adapter.bench_swap(champ_id) if lcu_adapter else False
+                    await websocket.send_json({"type": "BENCH_SWAP_RESULT", "championId": champ_id, "success": success})
+                elif cmd_type == "REROLL":
+                    success = await lcu_adapter.reroll() if lcu_adapter else False
+                    await websocket.send_json({"type": "REROLL_RESULT", "success": success})
+                elif cmd_type == "TRADE_REQUEST":
+                    trade_id = int(data.get("tradeId", 0) or 0)
+                    success = await lcu_adapter.request_trade(trade_id) if lcu_adapter else False
+                    await websocket.send_json({"type": "TRADE_RESULT", "tradeId": trade_id, "success": success})
+                elif cmd_type == "TRADE_ACCEPT":
+                    trade_id = int(data.get("tradeId", 0) or 0)
+                    success = await lcu_adapter.accept_trade(trade_id) if lcu_adapter else False
+                    await websocket.send_json({"type": "TRADE_RESULT", "tradeId": trade_id, "success": success})
+                elif cmd_type == "TRADE_DECLINE":
+                    trade_id = int(data.get("tradeId", 0) or 0)
+                    success = await lcu_adapter.decline_trade(trade_id) if lcu_adapter else False
+                    await websocket.send_json({"type": "TRADE_RESULT", "tradeId": trade_id, "success": success})
                 elif cmd_type == "PING":
                     await websocket.send_json({"type": "PONG"})
                 elif cmd_type == "GET_STATE":
