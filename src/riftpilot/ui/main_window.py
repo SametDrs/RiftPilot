@@ -13,22 +13,26 @@ Implements the modernized desktop companion GUI:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QMenu,
-    QSystemTrayIcon,
+    QComboBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QPushButton,
+    QSystemTrayIcon,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -39,6 +43,7 @@ from riftpilot.core.lcu_port import (
     ILcuPort,
     LcuConnectionStatus,
 )
+from riftpilot.core.lobby import PositionPreference, is_lane_selection_supported, resolve_lane_preferences
 from riftpilot.core.queue_timer import QueueTimer
 from riftpilot.ui.qr_helper import generate_qr_pixmap
 
@@ -206,6 +211,62 @@ QPushButton#revokeBtn:disabled {
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+/* Mode & Lane Selection */
+QComboBox#modeCombo {
+    background-color: #0d131f;
+    border: 1px solid rgba(200, 170, 110, 0.4);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #f0e6d2;
+    font-weight: 600;
+}
+QComboBox#modeCombo:hover {
+    border-color: #c8aa6e;
+}
+QComboBox#modeCombo QAbstractItemView {
+    background-color: #0d131f;
+    border: 1px solid rgba(200, 170, 110, 0.4);
+    selection-background-color: #1e282d;
+    selection-color: #0ac8b9;
+    color: #f0e6d2;
+}
+QPushButton#laneBtn {
+    background-color: #0d131f;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: #a09b8c;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 6px 4px;
+    min-height: 28px;
+}
+QPushButton#laneBtn:hover {
+    border-color: rgba(200, 170, 110, 0.5);
+    color: #f0e6d2;
+}
+QPushButton#laneBtn[active="true"] {
+    background-color: rgba(10, 200, 185, 0.2);
+    border: 1px solid #0ac8b9;
+    color: #0ac8b9;
+    font-weight: 700;
+}
+QPushButton#startMatchBtn {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #c8aa6e, stop:1 #785a28);
+    color: #03060a;
+    border: none;
+    border-radius: 6px;
+    padding: 9px;
+    font-size: 13px;
+    font-weight: 800;
+}
+QPushButton#startMatchBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #f0e6d2, stop:1 #c8aa6e);
+}
+QPushButton#startMatchBtn:disabled {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.3);
+}
+
 /* Device List Widget */
 QListWidget {
     background-color: #080d16;
@@ -286,6 +347,9 @@ class MainWindow(QMainWindow):
         self.tray_icon: QSystemTrayIcon | None = None
         self.queue_timer = QueueTimer()
         self.current_phase: GameflowPhase | str | None = None
+        self.selected_queue_id: int = 420
+        self.selected_lane: str | None = None
+        self.lane_buttons: dict[str, QPushButton] = {}
 
         self.setWindowTitle("RiftPilot — Hextech League Companion")
         self.setFixedSize(500, 780)
@@ -373,6 +437,85 @@ class MainWindow(QMainWindow):
         self.gameflow_label.setObjectName("subtitle")
         lcu_hero_layout.addWidget(self.gameflow_label)
         dash_layout.addWidget(lcu_hero)
+
+        # Mode & Lane Selection Card
+        lobby_card = QFrame(self)
+        lobby_card.setObjectName("card")
+        lobby_layout = QVBoxLayout(lobby_card)
+        lobby_layout.setSpacing(10)
+
+        lobby_title_lbl = QLabel("🎮 OYUN MODU VE KORİDOR SEÇİMİ", self)
+        lobby_title_lbl.setObjectName("sectionTitle")
+        lobby_layout.addWidget(lobby_title_lbl)
+
+        # Mode Selection Row
+        mode_row = QHBoxLayout()
+        mode_lbl = QLabel("Oyun Modu:", self)
+        mode_lbl.setObjectName("subtitle")
+        self.mode_combo = QComboBox(self)
+        self.mode_combo.setObjectName("modeCombo")
+        self.mode_combo.addItem("Dereceli Tek/Çift", 420)
+        self.mode_combo.addItem("Dereceli Esnek", 440)
+        self.mode_combo.addItem("Normal Sıralı", 400)
+        self.mode_combo.addItem("Kapalı Seçim", 430)
+        self.mode_combo.addItem("ARAM", 450)
+        self.mode_combo.currentIndexChanged.connect(self._on_desktop_mode_combo_changed)
+        mode_row.addWidget(mode_lbl)
+        mode_row.addWidget(self.mode_combo, stretch=1)
+        lobby_layout.addLayout(mode_row)
+
+        # Lane Selection Container
+        self.lane_container = QWidget(self)
+        lane_inner_layout = QVBoxLayout(self.lane_container)
+        lane_inner_layout.setContentsMargins(0, 4, 0, 0)
+        lane_inner_layout.setSpacing(6)
+
+        lane_header_row = QHBoxLayout()
+        lane_lbl = QLabel("Koridor Tercihi:", self)
+        lane_lbl.setObjectName("subtitle")
+        self.lane_hint_lbl = QLabel("Doldur (Otomatik)", self)
+        self.lane_hint_lbl.setObjectName("subtitle")
+        lane_header_row.addWidget(lane_lbl)
+        lane_header_row.addStretch()
+        lane_header_row.addWidget(self.lane_hint_lbl)
+        lane_inner_layout.addLayout(lane_header_row)
+
+        lane_grid = QGridLayout()
+        lane_grid.setSpacing(6)
+        lanes_spec = [
+            ("TOP", "🛡️ Üst Koridor", 0, 0),
+            ("JUNGLE", "🌲 Orman", 0, 1),
+            ("MIDDLE", "⚡ Orta Koridor", 0, 2),
+            ("BOTTOM", "🏹 Alt Koridor", 1, 0),
+            ("UTILITY", "💚 Destek", 1, 1),
+            ("FILL", "🎲 Doldur", 1, 2),
+        ]
+        self.lane_buttons = {}
+        for pos_key, display_txt, r, c in lanes_spec:
+            btn = QPushButton(display_txt, self.lane_container)
+            btn.setObjectName("laneBtn")
+            btn.setProperty("position", pos_key)
+            btn.setProperty("active", "false")
+            btn.clicked.connect(lambda _, p=pos_key: self.select_lane(p))
+            lane_grid.addWidget(btn, r, c)
+            self.lane_buttons[pos_key] = btn
+        lane_inner_layout.addLayout(lane_grid)
+        lobby_layout.addWidget(self.lane_container)
+
+        # Non-draft notice
+        self.lane_disabled_notice = QLabel("Bu oyun modunda koridor seçimi yapılmaz.", self)
+        self.lane_disabled_notice.setObjectName("subtitle")
+        self.lane_disabled_notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lane_disabled_notice.hide()
+        lobby_layout.addWidget(self.lane_disabled_notice)
+
+        # Matchmaking Action Button
+        self.start_queue_btn = QPushButton("⚔️ Maç Ara", self)
+        self.start_queue_btn.setObjectName("startMatchBtn")
+        self.start_queue_btn.clicked.connect(self.start_matchmaking_action)
+        lobby_layout.addWidget(self.start_queue_btn)
+
+        dash_layout.addWidget(lobby_card)
 
         # LAN Endpoint & Quick Connect Card
         lan_card = QFrame(self)
@@ -785,6 +928,115 @@ class MainWindow(QMainWindow):
             self.lcu_status_label.setText(f"🟢 LoL İstemcisi: LCU Bağlandı{port_info}")
         else:
             self.lcu_status_label.setText("🔴 LoL İstemcisi: İstemci Bekleniyor...")
+
+
+    def _run_async(self, coro: Any) -> None:
+        """Run an async coroutine safely in background thread."""
+        def _runner() -> None:
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(coro)
+            except Exception as e:
+                logger.debug("Desktop async error: %s", e)
+            finally:
+                try:
+                    loop.close()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_runner, daemon=True).start()
+
+    def _on_desktop_mode_combo_changed(self, index: int) -> None:
+        queue_id = int(self.mode_combo.currentData() or 420)
+        self.set_selected_mode(queue_id)
+
+    def set_selected_mode(self, queue_id: int) -> None:
+        """Update selected game mode and filter/reset lane selections accordingly."""
+        self.selected_queue_id = queue_id
+        is_draft = is_lane_selection_supported(queue_id)
+
+        # Sync combo index if needed
+        if hasattr(self, "mode_combo"):
+            idx = self.mode_combo.findData(queue_id)
+            if idx >= 0 and self.mode_combo.currentIndex() != idx:
+                self.mode_combo.blockSignals(True)
+                self.mode_combo.setCurrentIndex(idx)
+                self.mode_combo.blockSignals(False)
+
+        if not is_draft:
+            # Mode changed to non-draft: reset lane selection to None/UNSELECTED
+            self.selected_lane = None
+            if hasattr(self, "lane_container"):
+                self.lane_container.hide()
+            if hasattr(self, "lane_disabled_notice"):
+                self.lane_disabled_notice.show()
+            self._update_lane_buttons_ui()
+            if self.lcu_adapter:
+                self._run_async(self.lcu_adapter.set_position_preferences("UNSELECTED", "UNSELECTED"))
+        else:
+            if hasattr(self, "lane_container"):
+                self.lane_container.show()
+            if hasattr(self, "lane_disabled_notice"):
+                self.lane_disabled_notice.hide()
+            self._update_lane_buttons_ui()
+
+    def select_lane(self, position: str | None) -> None:
+        """Select or toggle a primary lane choice."""
+        if not is_lane_selection_supported(self.selected_queue_id):
+            self.selected_lane = None
+            self._update_lane_buttons_ui()
+            return
+
+        if self.selected_lane == position:
+            self.selected_lane = None
+        else:
+            self.selected_lane = position
+
+        self._update_lane_buttons_ui()
+        if self.lcu_adapter:
+            pref1, pref2 = resolve_lane_preferences(self.selected_queue_id, self.selected_lane, None)
+            self._run_async(self.lcu_adapter.set_position_preferences(pref1.value, pref2.value))
+
+    def _update_lane_buttons_ui(self) -> None:
+        """Update active visual state and hint label for lane buttons."""
+        if not hasattr(self, "lane_buttons"):
+            return
+        for pos_key, btn in self.lane_buttons.items():
+            is_active = (self.selected_lane == pos_key)
+            btn.setProperty("active", "true" if is_active else "false")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+        if hasattr(self, "lane_hint_lbl"):
+            if self.selected_lane:
+                self.lane_hint_lbl.setText(f"Seçildi: {self.selected_lane}")
+            else:
+                self.lane_hint_lbl.setText("Doldur (Otomatik)")
+
+    def start_matchmaking_action(self) -> None:
+        """Initiate lobby creation and matchmaking queue search with mode and lane."""
+        if self.lcu_adapter is None:
+            return
+
+        queue_id = self.selected_queue_id
+        lane = self.selected_lane
+
+        async def _do_start() -> None:
+            try:
+                await self.lcu_adapter.create_lobby(queue_id)
+                pref1, pref2 = resolve_lane_preferences(queue_id, lane, None)
+                if is_lane_selection_supported(queue_id):
+                    await self.lcu_adapter.set_position_preferences(pref1.value, pref2.value)
+                else:
+                    await self.lcu_adapter.set_position_preferences("UNSELECTED", "UNSELECTED")
+                ok = await self.lcu_adapter.start_matchmaking()
+                if ok:
+                    self.start_queue_timer()
+            except Exception as e:
+                logger.warning("Failed to start matchmaking from desktop: %s", e)
+
+        self._run_async(_do_start())
 
     # Compatibility aliases
     on_phase_changed = on_gameflow_phase_changed

@@ -39,6 +39,13 @@ from riftpilot.core.lcu_port import (
     ILcuPort,
     LcuConnectionStatus,
 )
+from riftpilot.core.lobby import (
+    DRAFT_QUEUE_IDS,
+    NON_DRAFT_QUEUE_IDS,
+    PositionPreference,
+    is_lane_selection_supported,
+    resolve_lane_preferences,
+)
 from riftpilot.core.pairing import DeviceSession, OTTManager, SessionManager
 from riftpilot.core.transport import ITunnelPort, TunnelInfo, TunnelStatus
 from riftpilot.core.runes_spells import (
@@ -643,6 +650,135 @@ INDEX_HTML = """<!DOCTYPE html>
             border-color: var(--arcane-cyan);
             color: var(--arcane-cyan);
             box-shadow: 0 0 10px var(--arcane-cyan-glow);
+        }
+
+        .lane-selector-section {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .lane-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding: 0 2px;
+        }
+
+        .lane-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            color: var(--gold-1);
+            text-transform: uppercase;
+        }
+
+        .lane-section-hint {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        .lane-chips-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+        }
+
+        .lane-chip {
+            position: relative;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            border-radius: var(--radius-sm);
+            padding: 8px 4px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            text-align: center;
+            min-height: 44px;
+            touch-action: manipulation;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        .lane-chip:hover {
+            border-color: rgba(200, 155, 60, 0.4);
+            background: rgba(255, 255, 255, 0.07);
+        }
+
+        .lane-chip-icon {
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .lane-chip-label {
+            font-size: 10px;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+
+        .lane-chip-badge {
+            position: absolute;
+            top: 2px;
+            right: 4px;
+            font-size: 8px;
+            font-weight: 800;
+            padding: 1px 4px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .lane-chip.primary {
+            background: rgba(200, 155, 60, 0.18);
+            border-color: var(--gold-1);
+            color: var(--gold-1);
+            box-shadow: 0 0 10px rgba(200, 155, 60, 0.25);
+        }
+
+        .lane-chip.primary .lane-chip-badge {
+            display: block;
+            background: var(--gold-1);
+            color: #03060a;
+        }
+
+        .lane-chip.secondary {
+            background: rgba(10, 200, 185, 0.15);
+            border-color: var(--arcane-cyan);
+            color: var(--arcane-cyan);
+            box-shadow: 0 0 10px var(--arcane-cyan-glow);
+        }
+
+        .lane-chip.secondary .lane-chip-badge {
+            display: block;
+            background: var(--arcane-cyan);
+            color: #03060a;
+        }
+
+        .lane-disabled-notice {
+            margin-top: 10px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px dashed rgba(255, 255, 255, 0.15);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .lane-disabled-notice .notice-icon {
+            font-size: 14px;
         }
 
         .btn-start-queue {
@@ -1871,7 +2007,46 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         }
 
+        @media (max-width: 430px) {
+            .lane-chips-grid {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 5px;
+            }
+            .lane-chip {
+                padding: 6px 2px;
+                min-height: 42px;
+            }
+            .lane-chip-label {
+                font-size: 9.5px;
+            }
+        }
+
+        @media (max-width: 390px) {
+            .lane-chips-grid {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 4px;
+            }
+            .lane-chip {
+                padding: 5px 2px;
+                min-height: 40px;
+            }
+            .lane-chip-label {
+                font-size: 9px;
+            }
+        }
+
         @media (max-width: 375px) {
+            .lane-chips-grid {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 4px;
+            }
+            .lane-chip {
+                padding: 5px 2px;
+                min-height: 40px;
+            }
+            .lane-chip-label {
+                font-size: 8.5px;
+            }
             .mode-chips-grid {
                 grid-template-columns: 1fr;
             }
@@ -1895,6 +2070,17 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         @media (max-width: 320px) {
+            .lane-chips-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 4px;
+            }
+            .lane-chip {
+                padding: 4px 2px;
+                min-height: 38px;
+            }
+            .lane-chip-label {
+                font-size: 8px;
+            }
             body {
                 padding: 8px 6px calc(var(--nav-height) + 12px) 6px;
             }
@@ -1988,6 +2174,52 @@ INDEX_HTML = """<!DOCTYPE html>
                         <button class="mode-chip" data-queue-id="430">Kapalı Seçim</button>
                         <button class="mode-chip" data-queue-id="450">ARAM</button>
                     </div>
+                    <!-- Lane Selector Section (Filtered by Mode) -->
+                    <div id="laneSelectorSection" class="lane-selector-section">
+                        <div class="lane-section-header">
+                            <span class="lane-section-title">KORİDOR SEÇİMİ</span>
+                            <span id="laneSelectionHint" class="lane-section-hint">Birincil & İkincil rol seçin</span>
+                        </div>
+                        <div id="laneChipsGrid" class="lane-chips-grid">
+                            <button type="button" class="lane-chip primary" data-lane="FILL" title="Doldur">
+                                <span class="lane-chip-icon">🎲</span>
+                                <span class="lane-chip-label">Doldur</span>
+                                <span class="lane-chip-badge">1.</span>
+                            </button>
+                            <button type="button" class="lane-chip" data-lane="TOP" title="Üst Koridor">
+                                <span class="lane-chip-icon">🛡️</span>
+                                <span class="lane-chip-label">Üst Koridor</span>
+                                <span class="lane-chip-badge"></span>
+                            </button>
+                            <button type="button" class="lane-chip" data-lane="JUNGLE" title="Orman">
+                                <span class="lane-chip-icon">🌲</span>
+                                <span class="lane-chip-label">Orman</span>
+                                <span class="lane-chip-badge"></span>
+                            </button>
+                            <button type="button" class="lane-chip" data-lane="MIDDLE" title="Orta Koridor">
+                                <span class="lane-chip-icon">⚡</span>
+                                <span class="lane-chip-label">Orta Koridor</span>
+                                <span class="lane-chip-badge"></span>
+                            </button>
+                            <button type="button" class="lane-chip" data-lane="BOTTOM" title="Alt Koridor">
+                                <span class="lane-chip-icon">🏹</span>
+                                <span class="lane-chip-label">Alt Koridor</span>
+                                <span class="lane-chip-badge"></span>
+                            </button>
+                            <button type="button" class="lane-chip" data-lane="UTILITY" title="Destek">
+                                <span class="lane-chip-icon">💖</span>
+                                <span class="lane-chip-label">Destek</span>
+                                <span class="lane-chip-badge"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Notice when lane selection is not supported in active mode -->
+                    <div id="laneDisabledNotice" class="lane-disabled-notice" style="display: none;">
+                        <span class="notice-icon">ℹ️</span>
+                        <span class="notice-text">Bu modda koridor seçimi bulunmamaktadır.</span>
+                    </div>
+
                     <button id="startQueueBtn" class="btn-start-queue">Maç Ara</button>
                 </div>
             </div>
@@ -2286,6 +2518,9 @@ INDEX_HTML = """<!DOCTYPE html>
         const modeSelectorCard = document.getElementById('modeSelectorCard');
         const startQueueBtn = document.getElementById('startQueueBtn');
         const modeChips = document.querySelectorAll('.mode-chip');
+        const laneSelectorSection = document.getElementById('laneSelectorSection');
+        const laneDisabledNotice = document.getElementById('laneDisabledNotice');
+        const laneChips = document.querySelectorAll('.lane-chip');
         const tradeNoticeBanner = document.getElementById('tradeNoticeBanner');
         const tradeNoticeType = document.getElementById('tradeNoticeType');
         const tradeNoticeSender = document.getElementById('tradeNoticeSender');
@@ -2317,6 +2552,11 @@ INDEX_HTML = """<!DOCTYPE html>
         let isSubmittingAction = false;
         let lastFetchedRunesChampId = 0;
         let selectedRoleFilter = '';
+        let selectedQueueId = 420;
+        let selectedFirstLane = 'FILL';
+        let selectedSecondLane = 'UNSELECTED';
+        const DRAFT_QUEUE_IDS = [420, 440, 400];
+        const NON_DRAFT_QUEUE_IDS = [430, 450];
 
         const spellSlotD = document.getElementById('spellSlotD');
         const spellSlotF = document.getElementById('spellSlotF');
@@ -3346,6 +3586,104 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         });
 
+        // Lane Selection & Mode Logic
+        function updateLaneUI() {
+            const isDraft = DRAFT_QUEUE_IDS.includes(selectedQueueId);
+            if (laneSelectorSection) {
+                laneSelectorSection.style.display = isDraft ? 'flex' : 'none';
+            }
+            if (laneDisabledNotice) {
+                laneDisabledNotice.style.display = isDraft ? 'none' : 'flex';
+            }
+            if (laneChips) {
+                laneChips.forEach(chip => {
+                    const lane = chip.dataset.lane;
+                    const badge = chip.querySelector('.lane-chip-badge');
+                    chip.classList.remove('primary', 'secondary');
+                    if (badge) badge.innerText = '';
+                    if (isDraft) {
+                        if (lane === selectedFirstLane) {
+                            chip.classList.add('primary');
+                            if (badge) badge.innerText = '1.';
+                        } else if (lane === selectedSecondLane) {
+                            chip.classList.add('secondary');
+                            if (badge) badge.innerText = '2.';
+                        }
+                    }
+                });
+            }
+        }
+
+        function syncPreferencesToServer(queueId, first, second) {
+            const p1 = first || 'UNSELECTED';
+            const p2 = second || 'UNSELECTED';
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'SET_POSITION_PREFERENCES',
+                    token: sessionToken,
+                    queueId: queueId,
+                    first: p1,
+                    second: p2,
+                    firstPreference: p1,
+                    secondPreference: p2
+                }));
+            } else {
+                const headers = { 'Content-Type': 'application/json' };
+                if (sessionToken) {
+                    headers['X-Session-Token'] = sessionToken;
+                    headers['Authorization'] = 'Bearer ' + sessionToken;
+                }
+                fetch('/api/lobby/preferences', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        queueId: queueId,
+                        first: p1,
+                        second: p2,
+                        firstPreference: p1,
+                        secondPreference: p2
+                    })
+                }).catch(() => {});
+            }
+        }
+
+        function onLaneChipClick(lane) {
+            if (!DRAFT_QUEUE_IDS.includes(selectedQueueId)) return;
+            if (selectedFirstLane === lane) {
+                if (selectedSecondLane && selectedSecondLane !== 'UNSELECTED') {
+                    selectedFirstLane = selectedSecondLane;
+                    selectedSecondLane = 'UNSELECTED';
+                } else {
+                    selectedFirstLane = 'FILL';
+                    selectedSecondLane = 'UNSELECTED';
+                }
+            } else if (selectedSecondLane === lane) {
+                selectedSecondLane = 'UNSELECTED';
+            } else {
+                if (lane === 'FILL') {
+                    selectedFirstLane = 'FILL';
+                    selectedSecondLane = 'UNSELECTED';
+                } else if (!selectedFirstLane || selectedFirstLane === 'FILL' || selectedFirstLane === 'UNSELECTED') {
+                    selectedFirstLane = lane;
+                } else if (!selectedSecondLane || selectedSecondLane === 'UNSELECTED') {
+                    selectedSecondLane = lane;
+                } else {
+                    selectedSecondLane = lane;
+                }
+            }
+            updateLaneUI();
+            syncPreferencesToServer(selectedQueueId, selectedFirstLane, selectedSecondLane);
+        }
+
+        if (laneChips) {
+            laneChips.forEach(chip => {
+                chip.addEventListener('click', () => {
+                    const lane = chip.dataset.lane;
+                    if (lane) onLaneChipClick(lane);
+                });
+            });
+        }
+
         // Mode chips click
         if (modeChips) {
             modeChips.forEach(chip => {
@@ -3353,6 +3691,18 @@ INDEX_HTML = """<!DOCTYPE html>
                     modeChips.forEach(c => c.classList.remove('active'));
                     chip.classList.add('active');
                     selectedQueueId = parseInt(chip.dataset.queueId || '420', 10);
+                    if (DRAFT_QUEUE_IDS.includes(selectedQueueId)) {
+                        if (!selectedFirstLane || selectedFirstLane === 'UNSELECTED') {
+                            selectedFirstLane = 'FILL';
+                            selectedSecondLane = 'UNSELECTED';
+                        }
+                    } else {
+                        // Non-draft modes (430 Kapalı Seçim, 450 ARAM): automatically reset lane preferences
+                        selectedFirstLane = 'UNSELECTED';
+                        selectedSecondLane = 'UNSELECTED';
+                    }
+                    updateLaneUI();
+                    syncPreferencesToServer(selectedQueueId, selectedFirstLane, selectedSecondLane);
                 });
             });
         }
@@ -3377,7 +3727,11 @@ INDEX_HTML = """<!DOCTYPE html>
                     socket.send(JSON.stringify({
                         type: 'START_MATCHMAKING',
                         token: sessionToken,
-                        queueId: selectedQueueId
+                        queueId: selectedQueueId,
+                        firstPreference: selectedFirstLane || 'FILL',
+                        secondPreference: selectedSecondLane || 'UNSELECTED',
+                        first: selectedFirstLane || 'FILL',
+                        second: selectedSecondLane || 'UNSELECTED'
                     }));
                     setTimeout(resetBtn, 2000);
                 } else {
@@ -3389,7 +3743,13 @@ INDEX_HTML = """<!DOCTYPE html>
                     fetch('/api/lobby/matchmaking/start', {
                         method: 'POST',
                         headers: headers,
-                        body: JSON.stringify({ queueId: selectedQueueId })
+                        body: JSON.stringify({
+                            queueId: selectedQueueId,
+                            firstPreference: selectedFirstLane || 'FILL',
+                            secondPreference: selectedSecondLane || 'UNSELECTED',
+                            first: selectedFirstLane || 'FILL',
+                            second: selectedSecondLane || 'UNSELECTED'
+                        })
                     })
                     .then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data })))
                     .then(({ ok, data }) => {
@@ -3605,6 +3965,13 @@ INDEX_HTML = """<!DOCTYPE html>
                         }
                         if (data.lcu_connected !== undefined) {
                             updateLcuStatus(data.lcu_connected);
+                        }
+                    } else if (data.type === 'POSITION_PREFERENCES_RESULT') {
+                        if (data.success) {
+                            if (data.first) selectedFirstLane = data.first;
+                            if (data.second) selectedSecondLane = data.second;
+                            if (data.queueId) selectedQueueId = data.queueId;
+                            updateLaneUI();
                         }
                     } else if (data.type === 'CHAMP_SELECT_UPDATE') {
                         renderChampSelect(data.data, data.modeContext, data.eligibility);
@@ -3874,8 +4241,11 @@ class SetSpellsRequest(BaseModel):
 
 
 class SetPositionPreferencesRequest(BaseModel):
-    first: str = Field(..., description="First position preference (TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY, FILL)")
-    second: str = Field(..., description="Second position preference")
+    first: str | None = Field(default=None, description="First position preference (TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY, FILL, UNSELECTED)")
+    firstPreference: str | None = Field(default=None, description="Alias for first position preference")
+    secondPreference: str | None = Field(default=None, description="Alias for second position preference")
+    queueId: int | None = Field(default=None, description="Optional queue ID context")
+    second: str | None = Field(default=None, description="Second position preference")
 
 
 
@@ -3904,6 +4274,10 @@ class CreateLobbyRequest(BaseModel):
 
 class StartMatchmakingRequest(BaseModel):
     queueId: int | None = Field(default=None, description="Optional target queue ID")
+    firstPreference: str | None = Field(default=None, description="First position preference")
+    secondPreference: str | None = Field(default=None, description="Second position preference")
+    first: str | None = Field(default=None, description="Alias for firstPreference")
+    second: str | None = Field(default=None, description="Alias for secondPreference")
 
 
 class TradeActionRequest(BaseModel):
@@ -4570,7 +4944,7 @@ def create_app(
     async def start_matchmaking_endpoint(
         payload: StartMatchmakingRequest | None = None,
     ) -> dict[str, Any]:
-        """Start matchmaking for the active lobby with optional queue selection."""
+        """Start matchmaking for the active lobby with optional queue selection and lane preferences."""
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adaptörü kullanılamıyor.")
 
@@ -4588,12 +4962,42 @@ def create_app(
             if existing is None:
                 await lcu_adapter.create_lobby(420)
 
-        success = await lcu_adapter.start_matchmaking()
+        # Resolve and apply lane preferences for active lobby
+        raw_lane_first = (payload.firstPreference or payload.first) if payload else None
+        raw_lane_second = (payload.secondPreference or payload.second) if payload else None
+        active_queue_id = target_queue or (existing.queue_id if existing else 420)
+        pref1, pref2 = resolve_lane_preferences(active_queue_id, raw_lane_first, raw_lane_second)
+        if is_lane_selection_supported(active_queue_id):
+            await lcu_adapter.set_position_preferences(str(pref1.value), str(pref2.value))
+        elif not is_lane_selection_supported(active_queue_id):
+            await lcu_adapter.set_position_preferences(PositionPreference.UNSELECTED.value, PositionPreference.UNSELECTED.value)
+
+        started_matchmaking = await lcu_adapter.start_matchmaking()
+        success = started_matchmaking
+
+
         if not success:
             # Retry once if initial search failed
             if target_queue:
                 await lcu_adapter.create_lobby(target_queue)
+                if is_lane_selection_supported(target_queue):
+                    await lcu_adapter.set_position_preferences(str(pref1.value), str(pref2.value))
                 success = await lcu_adapter.start_matchmaking()
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if not success:
             raise HTTPException(
@@ -4605,6 +5009,9 @@ def create_app(
         return {
             "success": True,
             "search": search_obj.model_dump() if search_obj else None,
+
+
+
         }
 
     @app.post("/api/lobby/matchmaking/cancel")
@@ -4631,12 +5038,27 @@ def create_app(
         success = await _perform_decline_ready_check(lcu_adapter)
         return {"success": bool(success)}
 
+
+
+    @app.post("/api/lobby/preferences")
     @app.put("/api/lobby/preferences")
     async def set_preferences_endpoint(payload: SetPositionPreferencesRequest) -> dict[str, Any]:
         """Set position preferences for the local lobby member."""
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
-        success = await lcu_adapter.set_position_preferences(payload.first, payload.second)
+        raw_first = payload.firstPreference or payload.first
+        raw_second = payload.secondPreference or payload.second
+        q_id = payload.queueId or 0
+        if q_id == 0:
+            lobby = await lcu_adapter.get_lobby()
+            if lobby:
+                q_id = lobby.queue_id
+            else:
+                q_id = 420
+        pref1, pref2 = resolve_lane_preferences(q_id, raw_first, raw_second)
+        success = await lcu_adapter.set_position_preferences(pref1.value, pref2.value)
+        return {"success": bool(success), "first": pref1.value, "second": pref2.value, "queueId": q_id}
+        if False: pass
         return {"success": success}
 
     # =========================================================================
@@ -5057,6 +5479,9 @@ def create_app(
                         "type": "LOBBY_UPDATE",
                         "lobby": lobby_obj.model_dump() if lobby_obj else None,
                         "search": search_obj.model_dump() if search_obj else None,
+
+
+
                     })
                 elif cmd_type == "START_MATCHMAKING":
                     q_id = int(data.get("queueId", 0) or 0)
@@ -5083,8 +5508,32 @@ def create_app(
                         existing = await lcu_adapter.get_lobby()
                         if existing is None:
                             await lcu_adapter.create_lobby(420)
+                            active_queue = 420
+                        else:
+                            active_queue = existing.queue_id
+                    if q_id > 0:
+                        active_queue = q_id
 
-                    success = await lcu_adapter.start_matchmaking()
+                    first_raw = data.get("firstPreference") or data.get("first")
+                    second_raw = data.get("secondPreference") or data.get("second")
+                    pref1, pref2 = resolve_lane_preferences(active_queue, first_raw, second_raw)
+                    if is_lane_selection_supported(active_queue):
+                        await lcu_adapter.set_position_preferences(pref1.value, pref2.value)
+                    elif not is_lane_selection_supported(active_queue):
+                        await lcu_adapter.set_position_preferences("UNSELECTED", "UNSELECTED")
+                    ws_started = await lcu_adapter.start_matchmaking()
+                    success = ws_started  # ws_anchor
+            
+
+            
+
+    
+
+
+
+
+
+
                     err_msg = ""
                     if not success:
                         err_msg = "Maç araması başlatılamadı. Lobi lideri olduğunuzdan ve rollerin seçildiğinden emin olun."
@@ -5096,6 +5545,9 @@ def create_app(
                         "queueId": q_id,
                         "error": err_msg,
                         "search": search_obj.model_dump() if search_obj else None,
+
+
+
                     })
                 elif cmd_type == "CREATE_LOBBY":
                     q_id = int(data.get("queueId", 0) or 0)
@@ -5105,10 +5557,22 @@ def create_app(
                     success = await lcu_adapter.cancel_matchmaking() if lcu_adapter else False
                     await websocket.send_json({"type": "MATCHMAKING_CANCELED", "success": success})
                 elif cmd_type == "SET_POSITION_PREFERENCES":
-                    first = str(data.get("first", "") or "")
-                    second = str(data.get("second", "") or "")
-                    success = await lcu_adapter.set_position_preferences(first, second) if lcu_adapter else False
-                    await websocket.send_json({"type": "POSITION_PREFERENCES_RESULT", "success": success, "first": first, "second": second})
+                    first_raw = data.get("firstPreference") or data.get("first") or ""
+                    second_raw = data.get("secondPreference") or data.get("second") or ""
+                    q_id = int(data.get("queueId", 0) or 0)
+                    if q_id == 0 and lcu_adapter:
+                        cur_lobby = await lcu_adapter.get_lobby()
+                        q_id = cur_lobby.queue_id if cur_lobby else 420
+                    elif q_id == 0:
+                        q_id = 420
+                    pref1, pref2 = resolve_lane_preferences(q_id, first_raw, second_raw)
+                    success = await lcu_adapter.set_position_preferences(pref1.value, pref2.value) if lcu_adapter else False
+                    await websocket.send_json({"type": "POSITION_PREFERENCES_RESULT", "success": bool(success), "first": pref1.value, "second": pref2.value, "queueId": q_id})
+
+
+
+
+
                 elif cmd_type == "BENCH_SWAP":
                     champ_id = int(data.get("championId", 0) or 0)
                     success = await lcu_adapter.bench_swap(champ_id) if lcu_adapter else False

@@ -57,6 +57,78 @@ class PositionPreference(str, Enum):
         }
         return names.get(self, "Bilinmeyen")
 
+# Supported draft queue IDs that require / support lane (position) selection
+DRAFT_QUEUE_IDS: frozenset[int] = frozenset({400, 420, 440})
+
+# Modes where lane selection is disabled / hidden
+NON_DRAFT_QUEUE_IDS: frozenset[int] = frozenset({430, 450})
+
+# Standard playable positions for draft modes
+STANDARD_LANE_POSITIONS: tuple[PositionPreference, ...] = (
+    PositionPreference.TOP,
+    PositionPreference.JUNGLE,
+    PositionPreference.MIDDLE,
+    PositionPreference.BOTTOM,
+    PositionPreference.UTILITY,
+    PositionPreference.FILL,
+)
+
+
+def is_lane_selection_supported(queue_id: int) -> bool:
+    """Check if the given queue ID supports or requires lane/position selection.
+
+    Returns True for draft queues (400, 420, 440), False for ARAM (450), Blind Pick (430), etc.
+    """
+    return queue_id in DRAFT_QUEUE_IDS
+
+
+def get_available_lanes_for_mode(queue_id: int) -> list[PositionPreference]:
+    """Return available lane/position options for the given queue ID."""
+    if is_lane_selection_supported(queue_id):
+        return list(STANDARD_LANE_POSITIONS)
+    return []
+
+
+def resolve_lane_preferences(
+    queue_id: int,
+    first: str | PositionPreference | None = None,
+    second: str | PositionPreference | None = None,
+) -> tuple[PositionPreference, PositionPreference]:
+    """Resolve and validate lane preferences based on game mode/queue ID.
+
+    Rules:
+    - If queue_id does not support lane selection (e.g. 450 ARAM, 430 Blind Pick),
+      returns (UNSELECTED, UNSELECTED) to automatically reset obsolete preferences.
+    - If queue_id is a draft mode (400, 420, 440):
+      - If no preferences are provided (both unselected/empty), defaults to (FILL, UNSELECTED)
+        so matchmaking can proceed seamlessly without error.
+      - If first preference is FILL, second is always UNSELECTED.
+      - If first preference is selected and second is empty/unselected, second defaults to FILL
+        (unless first is FILL).
+      - If first and second are identical, second is adjusted to FILL (or UNSELECTED).
+    """
+    if not is_lane_selection_supported(queue_id):
+        return (PositionPreference.UNSELECTED, PositionPreference.UNSELECTED)
+
+    pref1 = first if isinstance(first, PositionPreference) else PositionPreference.from_str(first)
+    pref2 = second if isinstance(second, PositionPreference) else PositionPreference.from_str(second)
+
+    # Smart default for unselected preferences in draft modes
+    if pref1 == PositionPreference.UNSELECTED and pref2 == PositionPreference.UNSELECTED:
+        return (PositionPreference.FILL, PositionPreference.UNSELECTED)
+
+    if pref1 == PositionPreference.FILL:
+        return (PositionPreference.FILL, PositionPreference.UNSELECTED)
+
+    if pref1 != PositionPreference.UNSELECTED and pref2 == PositionPreference.UNSELECTED:
+        return (pref1, PositionPreference.FILL)
+
+    if pref1 != PositionPreference.UNSELECTED and pref2 == pref1:
+        return (pref1, PositionPreference.FILL if pref1 != PositionPreference.FILL else PositionPreference.UNSELECTED)
+
+    return (pref1, pref2)
+
+
 
 class LobbyMember(BaseModel):
     """Represents a member inside the party lobby."""
@@ -340,4 +412,10 @@ __all__ = [
     "LaneSwapRequest",
     "can_initiate_trade",
     "can_swap_lanes",
+    "DRAFT_QUEUE_IDS",
+    "NON_DRAFT_QUEUE_IDS",
+    "STANDARD_LANE_POSITIONS",
+    "is_lane_selection_supported",
+    "get_available_lanes_for_mode",
+    "resolve_lane_preferences",
 ]
