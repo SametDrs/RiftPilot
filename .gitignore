@@ -32,6 +32,9 @@ $RECYCLE.BIN/
 *.swp
 *.swo
 
+# Git Worktrees
+.worktrees/
+
 # Environment Variables & Secrets (CRITICAL SECURITY)
 .env
 .env.*
