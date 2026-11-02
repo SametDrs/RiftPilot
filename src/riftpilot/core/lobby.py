@@ -196,6 +196,31 @@ class BenchChampion(BaseModel):
     champion_name: str = Field("", description="Champion display name")
 
 
+class TradeState(str, Enum):
+    """Lifecycle states for champion trade offers in champion select."""
+
+    AVAILABLE = "AVAILABLE"
+    REQUESTED = "REQUESTED"
+    SENT = "SENT"
+    RECEIVED = "RECEIVED"
+    ACCEPTED = "ACCEPTED"
+    DECLINED = "DECLINED"
+    CANCELED = "CANCELED"
+    CANCELLED = "CANCELLED"
+
+    @classmethod
+    def from_str(cls, value: str | None) -> TradeState:
+        if not value:
+            return cls.AVAILABLE
+        norm = value.strip().upper()
+        if norm == "CANCELLED":
+            return cls.CANCELED
+        try:
+            return cls(norm)
+        except ValueError:
+            return cls.AVAILABLE
+
+
 class ChampSelectTrade(BaseModel):
     """Champion trade offer between teammates."""
 
@@ -203,7 +228,10 @@ class ChampSelectTrade(BaseModel):
 
     trade_id: int = Field(..., description="Trade entity ID")
     cell_id: int = Field(..., description="Teammate cell ID")
-    state: str = Field("AVAILABLE", description="AVAILABLE, SENT, RECEIVED, ACCEPTED, DECLINED, CANCELLED")
+    state: TradeState = Field(
+        default=TradeState.AVAILABLE,
+        description="Trade state: AVAILABLE, REQUESTED, SENT, RECEIVED, ACCEPTED, DECLINED, CANCELED",
+    )
 
     @classmethod
     def from_lcu_dict(cls, data: dict[str, Any]) -> ChampSelectTrade | None:
@@ -211,10 +239,94 @@ class ChampSelectTrade(BaseModel):
             return None
         trade_id = data.get("id")
         cell_id = data.get("cellId")
-        state = str(data.get("state", "AVAILABLE") or "AVAILABLE")
+        raw_state = data.get("state")
+        state = TradeState.from_str(str(raw_state)) if raw_state is not None else TradeState.AVAILABLE
         if trade_id is None or cell_id is None:
             return None
         return cls(trade_id=int(trade_id), cell_id=int(cell_id), state=state)
+
+
+class LaneSwapRequest(BaseModel):
+    """Lane/position swap request between two teammates."""
+
+    model_config = ConfigDict(frozen=True)
+
+    from_cell_id: int = Field(..., description="Initiator cell ID")
+    to_cell_id: int = Field(..., description="Recipient cell ID")
+    from_assigned_position: str = Field("", description="Initiator assigned position")
+    to_assigned_position: str = Field("", description="Recipient assigned position")
+    status: str = Field("PENDING", description="Status of the swap request (PENDING, ACCEPTED, DECLINED, CANCELED)")
+
+    @classmethod
+    def from_lcu_dict(cls, data: dict[str, Any]) -> LaneSwapRequest | None:
+        if not isinstance(data, dict):
+            return None
+        from_cell = data.get("fromCellId") if "fromCellId" in data else data.get("from_cell_id")
+        to_cell = data.get("toCellId") if "toCellId" in data else data.get("to_cell_id")
+        if from_cell is None or to_cell is None:
+            return None
+        from_pos = str(data.get("fromAssignedPosition", data.get("from_assigned_position", "")) or "")
+        to_pos = str(data.get("toAssignedPosition", data.get("to_assigned_position", "")) or "")
+        status = str(data.get("status", "PENDING") or "PENDING")
+        return cls(
+            from_cell_id=int(from_cell),
+            to_cell_id=int(to_cell),
+            from_assigned_position=from_pos,
+            to_assigned_position=to_pos,
+            status=status,
+        )
+
+
+def can_initiate_trade(
+    cell_id: int,
+    target_cell_id: int,
+    my_champion_id: int,
+    target_champion_id: int,
+    owned_champion_ids: set[int],
+) -> tuple[bool, str]:
+    """Validate whether a champion trade can be initiated between two teammates.
+
+    Args:
+        cell_id: Cell ID of the initiator (must be >= 0).
+        target_cell_id: Cell ID of the recipient teammate (must be >= 0).
+        my_champion_id: Champion ID currently picked/held by initiator (> 0).
+        target_champion_id: Champion ID currently picked/held by target (> 0).
+        owned_champion_ids: Set of champion IDs owned by the initiator.
+
+    Returns:
+        tuple[bool, str]: (is_valid, reason_or_status_message).
+    """
+    if cell_id < 0 or target_cell_id < 0:
+        return False, "Invalid cell ID"
+    if cell_id == target_cell_id:
+        return False, "Cannot trade champion with yourself"
+    if my_champion_id <= 0:
+        return False, "Initiator has no champion selected"
+    if target_champion_id <= 0:
+        return False, "Target teammate has no champion selected"
+    if my_champion_id == target_champion_id:
+        return False, "Cannot trade identical champions"
+    if target_champion_id not in owned_champion_ids:
+        return False, "Target champion is not owned"
+
+    return True, "Trade available"
+
+
+def can_swap_lanes(cell_id: int, target_cell_id: int) -> bool:
+    """Validate whether a lane swap request can be sent to a teammate.
+
+    Args:
+        cell_id: Cell ID of the initiator.
+        target_cell_id: Cell ID of the target teammate.
+
+    Returns:
+        bool: True if swap request is structurally valid, False otherwise.
+    """
+    if cell_id < 0 or target_cell_id < 0:
+        return False
+    if cell_id == target_cell_id:
+        return False
+    return True
 
 
 __all__ = [
@@ -224,4 +336,8 @@ __all__ = [
     "LobbyData",
     "BenchChampion",
     "ChampSelectTrade",
+    "TradeState",
+    "LaneSwapRequest",
+    "can_initiate_trade",
+    "can_swap_lanes",
 ]
