@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, QTimer, Qt, Signal
+from PySide6.QtCore import QObject, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("RiftPilot.UI")
 
-HEXTECH_STYLE = """
+MAIN_WINDOW_STYLE = """
 /* Global Window & Typography */
 QMainWindow {
     background-color: #070b13;
@@ -172,18 +172,38 @@ QPushButton#refreshBtn:hover {
 QPushButton#refreshBtn:pressed {
     background: #785a28;
 }
+QLabel#deviceSubtitle {
+    color: #0ac8b9;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+/* Revoke / Disconnect Button */
 QPushButton#revokeBtn {
-    background-color: rgba(232, 64, 87, 0.12);
-    color: #ff7888;
+    background-color: rgba(232, 64, 87, 0.15);
+    color: #ff8595;
     border: 1px solid rgba(232, 64, 87, 0.45);
     border-radius: 6px;
     padding: 6px 12px;
     font-size: 11px;
     font-weight: 700;
+    min-width: 115px;
+    min-height: 28px;
 }
 QPushButton#revokeBtn:hover {
     background-color: #e84057;
-    color: white;
+    color: #ffffff;
+    border: 1px solid #ff8595;
+}
+QPushButton#revokeBtn:pressed {
+    background-color: #c03246;
+    color: #ffffff;
+    border: 1px solid #e84057;
+}
+QPushButton#revokeBtn:disabled {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* Device List Widget */
@@ -204,6 +224,7 @@ QListWidget::item:hover {
     border-color: rgba(200, 170, 110, 0.4);
 }
 """
+HEXTECH_STYLE = MAIN_WINDOW_STYLE
 
 
 class LcuUiBridge(QObject):
@@ -561,26 +582,52 @@ class MainWindow(QMainWindow):
 
         for session in active_sessions:
             item = QListWidgetItem()
-            item.setText(session.device_name)
+            # Explicitly set empty text on item so QListWidget doesn't render background delegate text
+            item.setText("")
+            item.setSizeHint(QSize(0, 58))
 
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(10, 6, 10, 6)
+            row_layout.setSpacing(8)
 
-            name_lbl = QLabel(f"📱 {session.device_name}", row_widget)
+            # Left column with vertical layout
+            left_col = QVBoxLayout()
+            left_col.setContentsMargins(0, 0, 0, 0)
+            left_col.setSpacing(2)
+
+            raw_name = session.device_name or "Bilinmeyen Cihaz"
+            max_name_len = 22
+            if len(raw_name) > max_name_len:
+                display_name = f"{raw_name[:max_name_len - 3]}..."
+            else:
+                display_name = raw_name
+
+            title_lbl = QLabel(f"📱 {display_name}", row_widget)
             font = QFont()
             font.setBold(True)
-            name_lbl.setFont(font)
-            row_layout.addWidget(name_lbl)
-            row_layout.addStretch()
+            title_lbl.setFont(font)
+            title_lbl.setToolTip(raw_name)
+            left_col.addWidget(title_lbl)
 
-            revoke_btn = QPushButton("Yetkiyi Kaldır", row_widget)
+            subtitle_lbl = QLabel("🟢 Mobil Web Paneli • Çevrimiçi", row_widget)
+            subtitle_lbl.setObjectName("deviceSubtitle")
+            subtitle_lbl.setStyleSheet("color: #0ac8b9; font-size: 11px;")
+            left_col.addWidget(subtitle_lbl)
+
+            row_layout.addLayout(left_col, stretch=1)
+
+            # Right column: Revoke / Disconnect Button (revoke_btn)
+            revoke_btn = QPushButton("✕ Bağlantıyı Kes", row_widget)
             revoke_btn.setObjectName("revokeBtn")
+            revoke_btn.setMinimumWidth(115)
+            revoke_btn.setMinimumHeight(28)
             token = session.session_token
             revoke_btn.clicked.connect(lambda _, t=token: self.revoke_session(t))
-            row_layout.addWidget(revoke_btn)
+            row_layout.addWidget(revoke_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
 
-            item.setSizeHint(row_widget.sizeHint())
+            row_widget.setToolTip(raw_name)
+
             self.device_list.addItem(item)
             self.device_list.setItemWidget(item, row_widget)
 
@@ -694,8 +741,19 @@ class MainWindow(QMainWindow):
             self.show_tray_notification("🏆 Şampiyon Seçimi", "Sıra sizde veya seçim odası aktif.")
         elif is_matchmaking:
             pass
-        elif phase == GameflowPhase.IN_PROGRESS or phase_str == "InProgress":
-            self.gameflow_label.setText("🔥 Oyunda")
+        elif (
+            phase == GameflowPhase.IN_PROGRESS
+            or phase_str.lower() in ("inprogress", "in_progress")
+        ):
+            if estimated_duration > 0.0:
+                mins = int(estimated_duration) // 60
+                secs = int(estimated_duration) % 60
+                self.gameflow_label.setText(
+                    f"⚔️ Maçtasın! (Maç Devam Ediyor - {mins:02d}:{secs:02d})"
+                )
+            else:
+                self.gameflow_label.setText("⚔️ Maçtasın! (Maç Devam Ediyor)")
+            self.show_tray_notification("⚔️ Maçtasın!", "Oyun devam ediyor.")
         elif phase == GameflowPhase.LOBBY or phase_str == "Lobby":
             self.gameflow_label.setText("🏠 Lobide")
         elif phase == GameflowPhase.NONE or phase_str == "None":
@@ -729,4 +787,4 @@ class MainWindow(QMainWindow):
     set_lcu_status = on_lcu_status_changed
 
 
-__all__ = ["LcuUiBridge", "MainWindow"]
+__all__ = ["LcuUiBridge", "MainWindow", "MAIN_WINDOW_STYLE", "HEXTECH_STYLE"]
