@@ -4,6 +4,21 @@
 
 Tasarımında **LeagueCompanion** ve Riot'un Hextech görsel dilini örnek alan RiftPilot; oyuncunun bilgisayar başında olmadığı anlarda bile lobi kurmasını, sıraya girmesini, maç kabul etmesini, şampiyon seçip yasaklamasını, ARAM yedek kulübesi takaslarını yapmasını ve maç sonu skorlarını inceleyip takım arkadaşlarını onurlandırmasını sağlar.
 
+## 📸 Ekran Görüntüleri
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/desktop-pairing.png" alt="Masaüstü - Mobil Eşleştirme" width="260"></td>
+    <td align="center"><img src="docs/screenshots/desktop-dashboard.png" alt="Masaüstü - Genel Bakış" width="260"></td>
+    <td align="center"><img src="docs/screenshots/mobile-hub.png" alt="Mobil Web Hub" width="260"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Masaüstü · QR ile Eşleştirme</b><br><sub>Tek kullanımlık kod, 3 adımlı akış</sub></td>
+    <td align="center"><b>Masaüstü · Genel Bakış</b><br><sub>LCU durumu, LAN Hub adresi, bağlı cihazlar</sub></td>
+    <td align="center"><b>Mobil · Web Hub</b><br><sub>Oyun modu, koridor seçimi, sıraya girme</sub></td>
+  </tr>
+</table>
+
 ---
 
 ## 🌟 Öne Çıkan Yetenekler (Milestone 1 — 7)
