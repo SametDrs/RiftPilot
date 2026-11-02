@@ -72,6 +72,69 @@ KNOWN_ARAM_QUEUE_IDS: set[int] = {450, 2400}
 KNOWN_ARAM_MODES: set[str] = {"ARAM", "KIWI"}
 KNOWN_CLASSIC_MODES: set[str] = {"CLASSIC", "URF", "ONEFORALL", "ULTBOOK", "NEXUSBLITZ", "PRACTICETOOL"}
 
+# Mode-specific restricted champion IDs (e.g. ARAM custom restrictions or special game mode bans)
+MODE_RESTRICTED_CHAMPIONS: dict[str, set[int]] = {
+    "ARAM": set(),
+}
+
+
+def set_mode_restricted_champions(mode: str, champion_ids: set[int]) -> None:
+    """Set the restricted champion ID set for a specific game mode."""
+    MODE_RESTRICTED_CHAMPIONS[mode.upper()] = set(champion_ids)
+
+
+def get_mode_restricted_champions(mode: str) -> set[int]:
+    """Get the restricted champion ID set for a specific game mode."""
+    return set(MODE_RESTRICTED_CHAMPIONS.get(mode.upper(), set()))
+
+
+def is_champion_eligible_for_mode(
+    champion_id: int,
+    mode_context: GameModeContext,
+    disabled_champion_ids: set[int] | None = None,
+) -> bool:
+    """Check if a champion is eligible for selection or play in the given game mode.
+
+    Evaluates:
+    - Champion ID validity (must be > 0).
+    - Mode layout compatibility (SAFE_GENERIC/unsupported modes are not eligible).
+    - Explicit disabled champion IDs passed by caller.
+    - Mode-specific champion restrictions (e.g. ARAM custom restrictions or mutators).
+
+    Returns:
+        bool: True if the champion is eligible, False otherwise.
+    """
+    if champion_id <= 0:
+        return False
+
+    # Check explicit caller-provided disabled champions
+    if disabled_champion_ids is not None and champion_id in disabled_champion_ids:
+        return False
+
+    layout = mode_context.resolve_layout()
+    if layout == SelectionLayoutKind.SAFE_GENERIC:
+        return False
+
+    mode_key = (mode_context.game_mode or "").upper()
+    if mode_key in MODE_RESTRICTED_CHAMPIONS and champion_id in MODE_RESTRICTED_CHAMPIONS[mode_key]:
+        return False
+
+    # Check custom ARAM restrictions via mutators or custom game rules
+    if layout == SelectionLayoutKind.ARAM:
+        for mutator in mode_context.mutators:
+            mutator_lower = mutator.lower().strip()
+            if f"disable_{champion_id}" in mutator_lower or f"ban_{champion_id}" in mutator_lower:
+                return False
+            if mutator_lower.startswith("disabled_champions:"):
+                try:
+                    ids = {int(x.strip()) for x in mutator_lower.split(":", 1)[1].split(",") if x.strip()}
+                    if champion_id in ids:
+                        return False
+                except ValueError:
+                    pass
+
+    return True
+
 
 @dataclass
 class GameModeContext:
@@ -509,7 +572,7 @@ def validate_champ_select_command(
             message="Bu şampiyon yasaklandığı için seçilemez veya tekrar yasaklanamaz.",
         )
 
-    if disabled_champion_ids and champion_id in disabled_champion_ids:
+    if not is_champion_eligible_for_mode(champion_id, mode_context, disabled_champion_ids):
         return CommandValidationResult(
             allowed=False,
             error_code="CHAMPION_DISABLED",
@@ -604,8 +667,12 @@ __all__ = [
     "ChampSelectStage",
     "CommandValidationResult",
     "GameModeContext",
+    "MODE_RESTRICTED_CHAMPIONS",
     "QUEUE_DISPLAY_NAMES",
     "SelectionLayoutKind",
     "compute_champ_select_stage_and_eligibility",
+    "get_mode_restricted_champions",
+    "is_champion_eligible_for_mode",
+    "set_mode_restricted_champions",
     "validate_champ_select_command",
 ]
