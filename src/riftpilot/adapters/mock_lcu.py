@@ -370,12 +370,30 @@ class MockLcuAdapter(ILcuPort):
         """Create or switch party lobby for a specific queue ID."""
         if self._status != LcuConnectionStatus.CONNECTED:
             return False
+        first_pref = PositionPreference.UNSELECTED
+        second_pref = PositionPreference.UNSELECTED
+        if queue_id in (400, 420, 440):
+            if self._lobby_data and self._lobby_data.local_member:
+                first_pref = self._lobby_data.local_member.first_position_preference
+                second_pref = self._lobby_data.local_member.second_position_preference
+            if first_pref == PositionPreference.UNSELECTED and second_pref == PositionPreference.UNSELECTED:
+                first_pref = PositionPreference.FILL
+                second_pref = PositionPreference.UNSELECTED
         self._lobby_data = LobbyData(
             queue_id=queue_id,
             game_mode="CLASSIC" if queue_id != 450 else "ARAM",
             is_leader=True,
-            can_start_matchmaking=True,
-            members=[LobbyMember(summoner_id=1, summoner_name="MockLocalUser", is_leader=True, is_local_member=True)],
+            can_start_activity=True,
+            members=[
+                LobbyMember(
+                    summoner_id=1,
+                    summoner_name="MockLocalUser",
+                    is_leader=True,
+                    is_local_member=True,
+                    first_position_preference=first_pref,
+                    second_position_preference=second_pref,
+                )
+            ],
         )
         self._gameflow_phase = GameflowPhase.LOBBY
         await self._dispatch_lobby(self._lobby_data)
@@ -411,10 +429,29 @@ class MockLcuAdapter(ILcuPort):
         return True
 
     async def set_position_preferences(self, first: str, second: str) -> bool:
-        if self._status != LcuConnectionStatus.CONNECTED or self._lobby_data is None:
+        if self._status != LcuConnectionStatus.CONNECTED:
             return False
         pref1 = PositionPreference.from_str(first)
         pref2 = PositionPreference.from_str(second)
+        if self._lobby_data is None:
+            self._lobby_data = LobbyData(
+                queue_id=420,
+                game_mode="CLASSIC",
+                is_leader=True,
+                can_start_activity=True,
+                members=[
+                    LobbyMember(
+                        summoner_id=1,
+                        summoner_name="MockLocalUser",
+                        is_leader=True,
+                        is_local_member=True,
+                        first_position_preference=pref1,
+                        second_position_preference=pref2,
+                    )
+                ],
+            )
+            await self._dispatch_lobby(self._lobby_data)
+            return True
         updated_members: list[LobbyMember] = []
         for member in self._lobby_data.members:
             if member.is_local_member:
