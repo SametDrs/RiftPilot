@@ -839,6 +839,96 @@ class TestLcuEventStreamResilience:
             assert stream.is_connected is False
 
 
+class TestLcuEventStreamReconnect:
+    """Auto-reconnect with exponential backoff."""
+
+    @staticmethod
+    def _make(creds: LcuCredentials, **kw: Any) -> tuple[LcuEventStream, list[float]]:
+        delays: list[float] = []
+
+        async def fake_sleep(d: float) -> None:
+            delays.append(d)
+            await asyncio.sleep(0.001)
+
+        kw.setdefault("jitter", 0.0)
+        return LcuEventStream(credentials=creds, sleep=fake_sleep, **kw), delays
+
+    @staticmethod
+    def _drop() -> Exception:
+        return websockets.exceptions.ConnectionClosedError(rcvd=None, sent=None)
+
+    @pytest.mark.asyncio
+    async def test_reconnects_and_resubscribes(self, sample_credentials: LcuCredentials) -> None:
+        ws1, ws2 = MockWebSocketConnection(), MockWebSocketConnection()
+        states: list[Any] = []
+        stream, delays = self._make(sample_credentials, on_state_change=states.append)
+        with patch("websockets.connect", AsyncMock(side_effect=[ws1, ws2])) as conn:
+            await stream.start()
+            ws1.queue_message(self._drop())
+            for _ in range(50):
+                await asyncio.sleep(0.01)
+                if conn.call_count == 2:
+                    break
+            assert conn.call_count == 2
+            await asyncio.sleep(0.01)
+            assert stream.is_connected is True
+            assert ws2.sent_messages == ws1.sent_messages
+            assert len(ws2.sent_messages) == 4
+            assert delays == [1.0]
+            await stream.stop()
+        assert [s.value for s in states] == ["connected", "reconnecting", "connected", "stopped"]
+
+    @pytest.mark.asyncio
+    async def test_backoff_grows_and_caps_then_resets(self, sample_credentials: LcuCredentials) -> None:
+        ws1, ws2 = MockWebSocketConnection(), MockWebSocketConnection()
+        effects = [ws1] + [OSError("refused")] * 6 + [ws2]
+        stream, delays = self._make(sample_credentials, backoff_initial=1.0, backoff_max=8.0)
+        with patch("websockets.connect", AsyncMock(side_effect=effects)) as conn:
+            await stream.start()
+            ws1.queue_message(self._drop())
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if conn.call_count == 8:
+                    break
+            assert delays[:7] == [1.0, 2.0, 4.0, 8.0, 8.0, 8.0, 8.0]
+            await stream.stop()
+
+    @pytest.mark.asyncio
+    async def test_stop_during_backoff_exits_promptly(self, sample_credentials: LcuCredentials) -> None:
+        ws1 = MockWebSocketConnection()
+        stream = LcuEventStream(credentials=sample_credentials, backoff_initial=60.0)
+        conn = AsyncMock(side_effect=[ws1])
+        with patch("websockets.connect", conn):
+            await stream.start()
+            ws1.queue_message(self._drop())
+            await asyncio.sleep(0.02)
+            assert stream.state.value == "reconnecting"
+            await asyncio.wait_for(stream.stop(), timeout=0.5)
+            assert stream.is_running is False
+            await asyncio.sleep(0.02)
+            assert conn.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_credentials_refreshed_on_reconnect(self, sample_credentials: LcuCredentials) -> None:
+        new_creds = LcuCredentials(port=31111, auth_token="new_token", pid=99, protocol="https")
+        ws1, ws2 = MockWebSocketConnection(), MockWebSocketConnection()
+        provider = MagicMock(side_effect=[None, new_creds])  # client not up yet, then restarted
+        stream, delays = self._make(sample_credentials, credentials_provider=provider)
+        with patch("websockets.connect", AsyncMock(side_effect=[ws1, ws2])) as conn:
+            await stream.start()
+            ws1.queue_message(self._drop())
+            for _ in range(50):
+                await asyncio.sleep(0.01)
+                if conn.call_count == 2:
+                    break
+            assert conn.call_count == 2
+            assert conn.call_args_list[0].args[0] == sample_credentials.ws_url
+            assert conn.call_args_list[1].args[0] == new_creds.ws_url
+            assert provider.call_count == 2
+            assert delays == [1.0, 2.0]
+            await stream.stop()
+
+
 # ============================================================================
 # 6. `RiotLcuAdapter` Outbound Port Integration Tests
 # ============================================================================

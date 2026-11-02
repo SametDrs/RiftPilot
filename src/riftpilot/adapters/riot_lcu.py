@@ -140,6 +140,7 @@ class RiotLcuAdapter(ILcuPort):
         self._stream = LcuEventStream(
             credentials=credentials,
             on_phase_change=self._on_stream_phase_change,
+            credentials_provider=self._discover_credentials,
         )
         self._stream.add_champ_select_callback(self._on_stream_champ_select_change)
         self._stream.add_lobby_callback(self._on_stream_lobby_change)
