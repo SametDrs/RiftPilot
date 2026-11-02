@@ -21,6 +21,23 @@ Tasarımında **LeagueCompanion** ve Riot'un Hextech görsel dilini örnek alan 
 
 ---
 
+## ⬇️ Hızlı Başlangıç (Hazır .exe)
+
+Python kurmanıza gerek yok, hazır Windows sürümünü indirip hemen kullanabilirsiniz:
+
+1. **[RiftPilot-v0.1.0-win64.zip](https://github.com/SametDrs/RiftPilot/releases/download/v0.1.0/RiftPilot-v0.1.0-win64.zip)** dosyasını indirin (tüm sürümler: [Releases](https://github.com/SametDrs/RiftPilot/releases)).
+2. Zip'i bir klasöre çıkarın ve `RiftPilot\RiftPilot.exe` dosyasını çalıştırın. `_internal` klasörünü exe'nin yanında bırakın.
+3. League of Legends istemcisini açın; RiftPilot istemciyi otomatik olarak bulur.
+4. Masaüstündeki **Mobil Eşleştirme** sekmesinde çıkan QR kodu telefonunuzla okutun. Telefon ve bilgisayar **aynı Wi-Fi ağında** olmalı.
+
+> ⚠️ **SmartScreen uyarısı:** Uygulama imzasız olduğu için Windows "bilinmeyen yayımcı" uyarısı verebilir. **Ek bilgi → Yine de çalıştır** ile devam edin.
+>
+> 🔥 **Güvenlik Duvarı:** İlk açılışta ağ izni istenirse **Özel ağlar** için izin verin; aksi halde telefon bağlanamaz.
+>
+> 🔁 QR kodu tek kullanımlıktır ve 90 saniye geçerlidir. Süresi dolarsa **QR Kodu Yenile** butonuna basın.
+
+---
+
 ## 🌟 Öne Çıkan Yetenekler (Milestone 1 — 7)
 
 ### 1. ⚔️ Otomatik & Uzaktan Maç Kabulü (Ready Check)
