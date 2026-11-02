@@ -17,6 +17,8 @@ from typing import Any, Generator
 import pytest
 from starlette.testclient import TestClient
 
+from tests.conftest import authorize_client
+
 from riftpilot.adapters.mock_lcu import MockLcuAdapter
 from riftpilot.adapters.web_hub import create_app
 from riftpilot.core.champ_select import (
@@ -88,8 +90,9 @@ def web_app(
 
 
 @pytest.fixture
-def client(web_app: Any) -> Generator[TestClient, None, None]:
+def client(web_app: Any, ott_manager: OTTManager) -> Generator[TestClient, None, None]:
     with TestClient(web_app) as test_client:
+        authorize_client(test_client, ott_manager)
         yield test_client
 
 

@@ -77,6 +77,7 @@ def test_app_bundle(
     pair_resp = client.post("/api/pair", json={"ott": ott.token, "deviceName": "TestMobile"})
     assert pair_resp.status_code == 200
     token = pair_resp.json()["sessionToken"]
+    client.headers["Authorization"] = f"Bearer {token}"
     return client, mock_lcu, token
 
 

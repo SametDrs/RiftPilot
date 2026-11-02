@@ -13,7 +13,9 @@ import asyncio
 import inspect
 import json
 import logging
+import random
 import ssl
+from enum import Enum
 from typing import Any, Callable
 
 import websockets
@@ -81,6 +83,22 @@ def parse_lcu_event(raw_message: str | bytes) -> tuple[str, Any] | None:
     return (uri, data)
 
 
+class StreamState(str, Enum):
+    """Connection state of the LCU event stream."""
+
+    CONNECTED = "connected"
+    RECONNECTING = "reconnecting"
+    STOPPED = "stopped"
+
+
+SUBSCRIPTION_TOPICS: tuple[str, ...] = (
+    "OnJsonApiEvent",
+    "OnJsonApiEvent_lol-gameflow_v1_gameflow-phase",
+    "OnJsonApiEvent_lol-champ-select_v1_session",
+    "OnJsonApiEvent_lol-lobby_v2_lobby",
+)
+
+
 class LcuEventStream:
     """Outbound adapter providing a persistent WebSocket event stream from LCU."""
 
@@ -88,9 +106,22 @@ class LcuEventStream:
         self,
         credentials: LcuCredentials,
         on_phase_change: Callable[[GameflowPhase], Any] | None = None,
+        credentials_provider: Callable[[], Any] | None = None,
+        on_state_change: Callable[[StreamState], Any] | None = None,
+        backoff_initial: float = 1.0,
+        backoff_max: float = 30.0,
+        jitter: float = 0.25,
+        sleep: Callable[[float], Any] = asyncio.sleep,
     ) -> None:
         """Initialize event stream adapter with LCU credentials and optional initial phase callback."""
         self._credentials = credentials
+        self._credentials_provider = credentials_provider
+        self._on_state_change = on_state_change
+        self._backoff_initial = backoff_initial
+        self._backoff_max = backoff_max
+        self._jitter = jitter
+        self._sleep = sleep
+        self._state = StreamState.STOPPED
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._listener_task: asyncio.Task[None] | None = None
         self._callbacks: list[Callable[[GameflowPhase], Any]] = []
@@ -104,6 +135,11 @@ class LcuEventStream:
         ] = []
         self._is_connected = False
         self._is_running = False
+
+    @property
+    def state(self) -> StreamState:
+        """Return the current connection state."""
+        return self._state
 
     @property
     def is_connected(self) -> bool:
@@ -163,17 +199,25 @@ class LcuEventStream:
             return True
         return False
 
-    async def start(self) -> bool:
-        """Connect to the LCU WebSocket interface and start listening for events."""
-        if self._is_running:
-            return True
+    def _set_state(self, state: StreamState) -> None:
+        """Update connection state and notify the optional observer."""
+        if state == self._state:
+            return
+        self._state = state
+        if self._on_state_change is not None:
+            try:
+                self._on_state_change(state)
+            except Exception as exc:
+                logger.warning("Error in stream state callback: %s", exc)
 
+    async def _open(self) -> bool:
+        """Open the WebSocket and send all subscriptions. Returns True on success."""
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
 
         try:
-            self._ws = await websockets.connect(
+            ws = await websockets.connect(
                 self._credentials.ws_url,
                 ssl=ssl_ctx,
                 additional_headers={
@@ -186,62 +230,103 @@ class LcuEventStream:
         except Exception as exc:
             logger.debug("Failed to connect to LCU WebSocket at %s: %s", self._credentials.ws_url, exc)
             self._is_connected = False
-            self._is_running = False
             self._ws = None
             return False
 
-        self._is_connected = True
-        self._is_running = True
-
         try:
-            # Opcode 5: WAMP v1 SUBSCRIBE
-            subscribe_all_msg = json.dumps([
-                5,
-                "OnJsonApiEvent",
-            ])
-            await self._ws.send(subscribe_all_msg)
-
-            # Explicit topic subscriptions as complementary fallbacks
-            subscribe_msg = json.dumps([
-                5,
-                "OnJsonApiEvent_lol-gameflow_v1_gameflow-phase",
-            ])
-            await self._ws.send(subscribe_msg)
-
-            subscribe_champ_select_msg = json.dumps([
-                5,
-                "OnJsonApiEvent_lol-champ-select_v1_session",
-            ])
-            await self._ws.send(subscribe_champ_select_msg)
-
-            subscribe_lobby_msg = json.dumps([
-                5,
-                "OnJsonApiEvent_lol-lobby_v2_lobby",
-            ])
-            await self._ws.send(subscribe_lobby_msg)
+            # Opcode 5: WAMP v1 SUBSCRIBE (all events + explicit topic fallbacks)
+            for topic in SUBSCRIPTION_TOPICS:
+                await ws.send(json.dumps([5, topic]))
         except Exception as exc:
             logger.warning("Failed to send subscription handshake: %s", exc)
-            await self.stop()
+            try:
+                await ws.close()
+            except Exception:
+                pass
+            self._is_connected = False
+            self._ws = None
             return False
 
-        self._listener_task = asyncio.create_task(self._listen_loop())
+        self._ws = ws
+        self._is_connected = True
+        self._set_state(StreamState.CONNECTED)
         return True
 
+    async def start(self) -> bool:
+        """Connect to the LCU WebSocket and start listening (with auto-reconnect)."""
+        if self._is_running:
+            return True
+
+        if not await self._open():
+            self._is_running = False
+            self._set_state(StreamState.STOPPED)
+            return False
+
+        self._is_running = True
+        self._listener_task = asyncio.create_task(self._run())
+        return True
+
+    def _next_delay(self, attempt: int) -> float:
+        """Exponential backoff delay (with jitter) for the given 0-based attempt."""
+        base = min(self._backoff_max, self._backoff_initial * (2 ** attempt))
+        if self._jitter > 0:
+            base += base * self._jitter * random.random()
+        return base
+
+    async def _refresh_credentials(self) -> bool:
+        """Re-discover credentials via the provider. False if client not found."""
+        if self._credentials_provider is None:
+            return True
+        try:
+            result = self._credentials_provider()
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as exc:
+            logger.debug("LCU credentials refresh failed: %s", exc)
+            return False
+        if result is None:
+            return False
+        self._credentials = result
+        return True
+
+    async def _run(self) -> None:
+        """Supervisor: listen, and on drop reconnect with exponential backoff."""
+        try:
+            while self._is_running:
+                await self._listen_loop()
+                if not self._is_running:
+                    break
+                self._set_state(StreamState.RECONNECTING)
+                attempt = 0
+                while self._is_running:
+                    await self._sleep(self._next_delay(attempt))
+                    attempt += 1
+                    if not self._is_running:
+                        break
+                    if await self._refresh_credentials() and await self._open():
+                        break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._is_connected = False
+            self._is_running = False
+            self._set_state(StreamState.STOPPED)
+
     async def _listen_loop(self) -> None:
-        """Background coroutine listening for incoming WebSocket messages."""
+        """Receive messages on the current socket until it drops."""
         while self._is_running and self._ws is not None:
             try:
                 msg = await self._ws.recv()
             except websockets.exceptions.ConnectionClosed as exc:
                 logger.debug("LCU WebSocket closed: %s", exc)
                 self._is_connected = False
-                break
+                return
             except asyncio.CancelledError:
-                break
+                raise
             except Exception as exc:
                 logger.warning("LCU WebSocket error during recv: %s", exc)
                 self._is_connected = False
-                break
+                return
 
             parsed = parse_lcu_event(msg)
             if parsed is not None:
@@ -267,7 +352,6 @@ class LcuEventStream:
                     await self._dispatch_lobby(lobby)
 
         self._is_connected = False
-        self._is_running = False
 
     async def _dispatch_phase(self, phase: GameflowPhase) -> None:
         """Dispatch a gameflow phase change to all registered callbacks."""
@@ -323,6 +407,7 @@ class LcuEventStream:
             except Exception:
                 pass
             self._ws = None
+        self._set_state(StreamState.STOPPED)
 
     async def __aenter__(self) -> LcuEventStream:
         """Async context manager entry."""
@@ -339,4 +424,4 @@ class LcuEventStream:
         await self.stop()
 
 
-__all__ = ["LcuEventStream", "parse_lcu_event"]
+__all__ = ["LcuEventStream", "StreamState", "parse_lcu_event"]

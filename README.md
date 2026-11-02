@@ -4,6 +4,21 @@
 
 Tasarımında **LeagueCompanion** ve Riot'un Hextech görsel dilini örnek alan RiftPilot; oyuncunun bilgisayar başında olmadığı anlarda bile lobi kurmasını, sıraya girmesini, maç kabul etmesini, şampiyon seçip yasaklamasını, ARAM yedek kulübesi takaslarını yapmasını ve maç sonu skorlarını inceleyip takım arkadaşlarını onurlandırmasını sağlar.
 
+## 📸 Ekran Görüntüleri
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/desktop-pairing.png" alt="Masaüstü - Mobil Eşleştirme" width="260"></td>
+    <td align="center"><img src="docs/screenshots/desktop-dashboard.png" alt="Masaüstü - Genel Bakış" width="260"></td>
+    <td align="center"><img src="docs/screenshots/mobile-hub.png" alt="Mobil Web Hub" width="260"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Masaüstü · QR ile Eşleştirme</b><br><sub>Tek kullanımlık kod, 3 adımlı akış</sub></td>
+    <td align="center"><b>Masaüstü · Genel Bakış</b><br><sub>LCU durumu, LAN Hub adresi, bağlı cihazlar</sub></td>
+    <td align="center"><b>Mobil · Web Hub</b><br><sub>Oyun modu, koridor seçimi, sıraya girme</sub></td>
+  </tr>
+</table>
+
 ---
 
 ## 🌟 Öne Çıkan Yetenekler (Milestone 1 — 7)
@@ -77,7 +92,7 @@ RiftPilot; iş mantığını dış dünyadan, ağ protokollerinden ve kullanıc�
         +--------------+--------------+         +--------------+--------------+
         |                             |         |                             |
   [ Web Hub Adapter ]         [ Desktop UI ]    [ Riot LCU HTTPX Adapter ]  [ Mock LCU Adapter ]
-  FastAPI / WebSockets        PySide6 GUI       Canlı LCU REST/WS           391 Deterministik Test
+  FastAPI / WebSockets        PySide6 GUI       Canlı LCU REST/WS           600+ Deterministik Test
   LAN & WAN Relay Hub         Sistem Tepsisi    (Self-Signed SSL)           (League Client Gereksiz)
 ```
 
@@ -116,7 +131,7 @@ RiftPilot/
 │       └── ui/                   # Masaüstü kullanıcı arayüzü
 │           ├── main_window.py    # PySide6 modern Hextech ana pencere & sistem tepsisi
 │           └── qr_helper.py      # QR kod pixmap üreticisi
-├── tests/                        # 391 birim, entegrasyon ve TDD testleri
+├── tests/                        # 600+ birim, entegrasyon ve TDD testleri
 ├── pyproject.toml                # Bağımlılıklar ve proje yapılandırması
 ├── riftpilot.spec                # PyInstaller masaüstü paketleme yapılandırması
 ├── GEMINI.md                     # Yapay zeka ve mühendislik kuralları
@@ -156,7 +171,7 @@ python run.py --headless          # Yalnızca mobil web sunucusunu çalıştırm
 
 ## 🧪 Testleri Çalıştırma
 
-RiftPilot, League of Legends istemcisinin açık olmasına gerek kalmadan test edilebilir. 395 testin tamamı mock LCU adaptörleri ve HTTPX mock taşımalarıyla saniyeler içinde koşar:
+RiftPilot, League of Legends istemcisinin açık olmasına gerek kalmadan test edilebilir. 600+ testin tamamı mock LCU adaptörleri ve HTTPX mock taşımalarıyla saniyeler içinde koşar:
 
 ```powershell
 # Tüm birim ve entegrasyon testlerini çalıştırın

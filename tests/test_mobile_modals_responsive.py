@@ -30,6 +30,8 @@ from typing import Any, Generator
 import pytest
 from starlette.testclient import TestClient
 
+from tests.conftest import authorize_client
+
 from riftpilot.adapters.mock_lcu import MockLcuAdapter
 from riftpilot.adapters.web_hub import INDEX_HTML, create_app
 from riftpilot.core.lcu_port import GameflowPhase
@@ -68,6 +70,7 @@ def app_bundle(
     pair_resp = client.post("/api/pair", json={"ott": ott.token, "deviceName": "TestMobileUX"})
     assert pair_resp.status_code == 200
     token = pair_resp.json()["sessionToken"]
+    client.headers["Authorization"] = f"Bearer {token}"
     return client, mock_lcu, token
 
 
@@ -124,6 +127,7 @@ class TestMatchHttpEndpoints:
             enable_monitor=False,
         )
         client = TestClient(app)
+        authorize_client(client, ott_manager)
         resp = client.post("/api/match/decline")
         assert resp.status_code == 503
         assert "unavailable" in resp.json()["detail"].lower()
@@ -156,6 +160,7 @@ class TestMatchHttpEndpoints:
             enable_monitor=False,
         )
         client = TestClient(app)
+        authorize_client(client, ott_manager)
         resp = client.post("/api/match/accept")
         assert resp.status_code == 503
 
