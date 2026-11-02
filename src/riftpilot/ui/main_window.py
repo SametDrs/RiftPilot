@@ -583,10 +583,14 @@ class MainWindow(QMainWindow):
         for session in active_sessions:
             item = QListWidgetItem()
             # Explicitly set empty text on item so QListWidget doesn't render background delegate text
-            item.setText("")
+            item.setText(session.device_name)
+            item.setForeground(Qt.GlobalColor.transparent)
             item.setSizeHint(QSize(0, 58))
 
             row_widget = QWidget()
+            row_widget.setObjectName("deviceRowWidget")
+            row_widget.setStyleSheet("QWidget#deviceRowWidget { background-color: #0f1726; border-radius: 6px; }")
+            row_widget.setAutoFillBackground(True)
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(10, 6, 10, 6)
             row_layout.setSpacing(8)

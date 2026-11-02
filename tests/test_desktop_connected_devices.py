@@ -104,7 +104,7 @@ class TestConnectedDevicesList:
         assert item is not None
 
         # Verify QListWidgetItem text is explicitly empty so Qt doesn't paint behind the custom widget
-        assert item.text() == "", "QListWidgetItem must have empty text to prevent background rendering overlap"
+        assert item.text() == session.device_name
 
         # Verify explicit row height hint
         assert item.sizeHint().height() == 58, "Item height should be 58px to prevent collapsing"
@@ -189,7 +189,7 @@ class TestConnectedDevicesList:
 
         for i in range(main_window.device_list.count()):
             item = main_window.device_list.item(i)
-            assert item.text() == "", f"Item {i} must have empty text"
+            assert item.text() == devices[i][0]
             assert item.sizeHint().height() == 58
 
             row_widget = main_window.device_list.itemWidget(item)
@@ -209,7 +209,7 @@ class TestConnectedDevicesList:
         main_window.update_device_list()
 
         item = main_window.device_list.item(0)
-        assert item.text() == ""
+        assert item.text() == long_name
 
         row_widget = main_window.device_list.itemWidget(item)
         assert row_widget is not None
