@@ -133,6 +133,7 @@ class ChampSelectPlayer:
     spell2_id: int = 0
     summoner_id: int = 0
     team: int = 1
+    summoner_name: str = ""
 
     @classmethod
     def from_lcu_dict(cls, data: dict[str, Any]) -> ChampSelectPlayer:
@@ -146,6 +147,13 @@ class ChampSelectPlayer:
             spell2_id=int(data.get("spell2Id", 0)),
             summoner_id=int(data.get("summonerId", 0)),
             team=int(data.get("team", 1)),
+            summoner_name=str(
+                data.get("summonerName")
+                or data.get("displayName")
+                or data.get("gameName")
+                or data.get("summoner_name")
+                or ""
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -165,6 +173,8 @@ class ChampSelectPlayer:
             "spell2_id": self.spell2_id,
             "summonerId": self.summoner_id,
             "summoner_id": self.summoner_id,
+            "summonerName": self.summoner_name,
+            "summoner_name": self.summoner_name,
             "team": self.team,
         }
 
@@ -528,6 +538,21 @@ class ChampSelectSession:
                 return action
         return None
 
+    def is_local_pick_completed(self) -> bool:
+        """Return True if the local player has completed their champion pick action."""
+        if self.local_player_cell_id < 0:
+            return False
+
+        local_picks = self.get_local_actions("pick")
+        if local_picks:
+            return any(action.completed for action in local_picks)
+
+        local_player = self.get_local_player()
+        if local_player and local_player.champion_id > 0:
+            return True
+
+        return False
+
     def get_unavailable_pick_ids(self) -> set[int]:
         """Return champion IDs already locked in by other players (cannot be picked)."""
         return {
@@ -583,6 +608,8 @@ class ChampSelectSession:
             "benchEnabled": self.bench_enabled,
             "benchChampionIds": self.get_bench_champion_ids(),
             "rerollsRemaining": self.rerolls_remaining,
+            "isLocalPickCompleted": self.is_local_pick_completed(),
+            "is_local_pick_completed": self.is_local_pick_completed(),
         }
 
 

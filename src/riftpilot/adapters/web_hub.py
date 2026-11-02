@@ -1677,6 +1677,375 @@ INDEX_HTML = """<!DOCTYPE html>
             to { opacity: 1; transform: scale(1) translateY(0); }
         }
 
+        /* ==========================================================================
+           Post-Lock Match Lobby Screen (#postLockLobbyView)
+           ========================================================================== */
+        .post-lock-lobby-view {
+            display: none;
+            flex-direction: column;
+            width: 100%;
+            max-width: 100%;
+            gap: 12px;
+            box-sizing: border-box;
+            overflow-x: hidden;
+            animation: fadeInLobby 0.35s ease forwards;
+        }
+
+        @keyframes fadeInLobby {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .lobby-header-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(10, 16, 29, 0.85));
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 10px 14px;
+            box-sizing: border-box;
+        }
+
+        .lobby-header-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .lobby-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--gold-1);
+            box-shadow: 0 0 8px var(--gold-1);
+            animation: pulse-dot 1.5s infinite;
+        }
+
+        .lobby-header-title {
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--gold-1);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .lobby-timer-badge {
+            background: rgba(200, 155, 60, 0.15);
+            border: 1px solid var(--gold-2);
+            color: var(--gold-1);
+            font-size: 12px;
+            font-weight: 800;
+            padding: 4px 10px;
+            border-radius: var(--radius-pill);
+            min-width: 48px;
+            text-align: center;
+        }
+
+        /* Locked notification card */
+        .lobby-locked-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: linear-gradient(135deg, rgba(10, 200, 185, 0.12), rgba(15, 23, 42, 0.85));
+            border: 1px solid var(--arcane-cyan);
+            box-shadow: 0 0 16px var(--arcane-cyan-glow);
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+            box-sizing: border-box;
+        }
+
+        .lobby-locked-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--arcane-cyan);
+            color: #03060a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 900;
+            flex-shrink: 0;
+        }
+
+        .lobby-locked-text-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            overflow: hidden;
+        }
+
+        .lobby-locked-title {
+            font-size: 14px;
+            font-weight: 800;
+            color: #ffffff;
+        }
+
+        .lobby-locked-subtitle {
+            font-size: 11px;
+            color: var(--text-secondary);
+            line-height: 1.35;
+        }
+
+        /* Teams Container: Column on Mobile */
+        .lobby-teams-container {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .lobby-team-box {
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            box-sizing: border-box;
+        }
+
+        .lobby-team-box.blue {
+            border-left: 4px solid var(--blue-team);
+        }
+
+        .lobby-team-box.red {
+            border-left: 4px solid var(--red-team);
+        }
+
+        .lobby-team-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .lobby-team-title {
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .lobby-team-title.blue {
+            color: var(--blue-team);
+        }
+
+        .lobby-team-title.red {
+            color: var(--red-team);
+        }
+
+        .lobby-team-count {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        .lobby-roster-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* Individual Player Card in Lobby */
+        .lobby-player-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(10, 16, 29, 0.65);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-sm);
+            padding: 8px 10px;
+            box-sizing: border-box;
+            transition: all 0.2s ease;
+            min-height: 54px;
+        }
+
+        /* Highlight Local Player */
+        .lobby-player-card.is-me {
+            border: 2px solid var(--gold-1) !important;
+            background: linear-gradient(90deg, rgba(200, 155, 60, 0.18), rgba(15, 23, 42, 0.85));
+            box-shadow: 0 0 16px rgba(200, 155, 60, 0.3);
+        }
+
+        .lobby-avatar-container {
+            position: relative;
+            width: 40px;
+            height: 40px;
+            flex-shrink: 0;
+        }
+
+        .lobby-champ-img {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            object-fit: cover;
+            border: 1px solid var(--card-border);
+            background: #03060a;
+            display: block;
+        }
+
+        .lobby-avatar-mystery {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px dashed rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: var(--text-muted);
+        }
+
+        .lobby-role-pill-on-avatar {
+            position: absolute;
+            bottom: -3px;
+            right: -3px;
+            font-size: 8px;
+            font-weight: 800;
+            padding: 1px 4px;
+            border-radius: 3px;
+            background: rgba(10, 16, 29, 0.9);
+            border: 1px solid var(--card-border);
+            color: var(--arcane-cyan);
+            text-transform: uppercase;
+        }
+
+        .lobby-player-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+        }
+
+        .lobby-player-name-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .lobby-player-name {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .lobby-tag-me {
+            font-size: 9px;
+            font-weight: 900;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: var(--gold-1);
+            color: #03060a;
+            letter-spacing: 0.5px;
+            flex-shrink: 0;
+        }
+
+        .lobby-champ-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--gold-2);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .lobby-champ-title.hidden-enemy {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* Trade / Swap Buttons on Roster Cards */
+        .lobby-card-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .lobby-btn-swap, .lobby-btn-trade {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            border-radius: var(--radius-sm);
+            padding: 6px 8px;
+            font-size: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            min-height: 36px;
+            touch-action: manipulation;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .lobby-btn-swap:hover, .lobby-btn-swap:active {
+            border-color: var(--arcane-cyan);
+            color: var(--arcane-cyan);
+            background: rgba(10, 200, 185, 0.12);
+        }
+
+        .lobby-btn-trade:hover, .lobby-btn-trade:active {
+            border-color: var(--gold-1);
+            color: var(--gold-1);
+            background: rgba(200, 155, 60, 0.12);
+        }
+
+        .lobby-status-pill {
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--arcane-cyan);
+            background: rgba(10, 200, 185, 0.1);
+            border: 1px solid rgba(10, 200, 185, 0.3);
+            border-radius: var(--radius-pill);
+            padding: 3px 8px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .lobby-footer-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 8px 12px;
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: var(--radius-sm);
+            border: 1px dashed rgba(255, 255, 255, 0.08);
+            line-height: 1.4;
+        }
+
+        @media (max-width: 360px) {
+            .lobby-card-actions {
+                flex-direction: column;
+                gap: 4px;
+            }
+            .lobby-btn-swap, .lobby-btn-trade {
+                min-height: 30px;
+                padding: 4px 6px;
+                font-size: 9px;
+            }
+            .lobby-player-card {
+                padding: 6px 8px;
+            }
+        }
+
         /* In-Game Match Screen (#inGameView) */
         .in-game-view {
             width: 100%;
@@ -2086,6 +2455,67 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
             </div>
 
+            <!-- Post-Lock Match Lobby View -->
+            <div id="postLockLobbyView" class="post-lock-lobby-view" style="display: none;">
+                <!-- Header Banner -->
+                <div class="lobby-header-banner">
+                    <div class="lobby-header-status">
+                        <span class="lobby-status-dot"></span>
+                        <span class="lobby-header-title">🛡️ MAÇ LOBİSİ</span>
+                    </div>
+                    <div id="lobbyTimerBadge" class="lobby-timer-badge">--</div>
+                </div>
+
+                <!-- Locked status info banner -->
+                <div class="lobby-locked-card">
+                    <div class="lobby-locked-icon">✓</div>
+                    <div class="lobby-locked-text-wrap">
+                        <div class="lobby-locked-title">Şampiyonun Kilitlendi!</div>
+                        <div class="lobby-locked-subtitle">Diğer oyuncuların seçimleri ve karşılaşmanın başlaması bekleniyor.</div>
+                    </div>
+                </div>
+
+                <!-- Trade / Lane Swap Notice Banner in Lobby -->
+                <div id="lobbyTradeNoticeBanner" class="trade-notice-banner" style="display: none;">
+                    <div class="trade-notice-header">
+                        <span id="lobbyTradeNoticeType" class="trade-notice-type">ŞAMPİYON TAKASI</span>
+                        <span id="lobbyTradeNoticeSender" class="trade-notice-sender">Takım Arkadaşı</span>
+                    </div>
+                    <div id="lobbyTradeNoticeText" class="trade-notice-text">Takas teklifi gönderildi.</div>
+                    <div class="trade-notice-actions">
+                        <button id="lobbyTradeAcceptBtn" class="trade-btn-accept">KABUL ET</button>
+                        <button id="lobbyTradeDeclineBtn" class="trade-btn-decline">REDDET</button>
+                        <button id="lobbyTradeCancelBtn" class="trade-btn-cancel" style="display: none;">İPTAL ET</button>
+                    </div>
+                </div>
+
+                <!-- Teams Section: Blue Team (My Team) vs Red Team (Enemy Team) -->
+                <div class="lobby-teams-container">
+                    <!-- Blue / My Team -->
+                    <div class="lobby-team-box blue">
+                        <div class="lobby-team-header">
+                            <span class="lobby-team-title blue">🔵 KENDİ TAKIMIN</span>
+                            <span class="lobby-team-count" id="lobbyMyTeamCount">5 Oyuncu</span>
+                        </div>
+                        <div id="lobbyMyTeamList" class="lobby-roster-list"></div>
+                    </div>
+
+                    <!-- Red / Enemy Team -->
+                    <div class="lobby-team-box red">
+                        <div class="lobby-team-header">
+                            <span class="lobby-team-title red">🔴 KARŞI TAKIM</span>
+                            <span class="lobby-team-count" id="lobbyTheirTeamCount">5 Oyuncu</span>
+                        </div>
+                        <div id="lobbyTheirTeamList" class="lobby-roster-list"></div>
+                    </div>
+                </div>
+
+                <!-- Footer Hint -->
+                <div class="lobby-footer-hint">
+                    💡 İpucu: Rünlerini ve Sihirdar Büyülerini üst kısımdaki <b>Dizilim</b> sekmesinden maç başlayana kadar düzenleyebilirsin.
+                </div>
+            </div>
+
             <!-- In-Game Match View -->
             <div id="inGameView" class="in-game-view" style="display: none;">
                 <div class="in-game-card">
@@ -2276,6 +2706,21 @@ INDEX_HTML = """<!DOCTYPE html>
         const csBanBtn = document.getElementById('csBanBtn');
         const csLockBtn = document.getElementById('csLockBtn');
         const csActionReason = document.getElementById('csActionReason');
+
+        // Post-Lock Lobby DOM references
+        const postLockLobbyView = document.getElementById('postLockLobbyView');
+        const lobbyTimerBadge = document.getElementById('lobbyTimerBadge');
+        const lobbyMyTeamList = document.getElementById('lobbyMyTeamList');
+        const lobbyTheirTeamList = document.getElementById('lobbyTheirTeamList');
+        const lobbyMyTeamCount = document.getElementById('lobbyMyTeamCount');
+        const lobbyTheirTeamCount = document.getElementById('lobbyTheirTeamCount');
+        const lobbyTradeNoticeBanner = document.getElementById('lobbyTradeNoticeBanner');
+        const lobbyTradeNoticeType = document.getElementById('lobbyTradeNoticeType');
+        const lobbyTradeNoticeSender = document.getElementById('lobbyTradeNoticeSender');
+        const lobbyTradeNoticeText = document.getElementById('lobbyTradeNoticeText');
+        const lobbyTradeAcceptBtn = document.getElementById('lobbyTradeAcceptBtn');
+        const lobbyTradeDeclineBtn = document.getElementById('lobbyTradeDeclineBtn');
+        const lobbyTradeCancelBtn = document.getElementById('lobbyTradeCancelBtn');
 
         // Navigation DOM references
         const gameTabPanel = document.getElementById('gameTabPanel');
@@ -2854,7 +3299,14 @@ INDEX_HTML = """<!DOCTYPE html>
                 stopQueueTimer();
                 mainView.style.display = 'none';
                 if (inGameView) inGameView.style.display = 'none';
-                champSelectView.style.display = 'flex';
+                const isLocked = Boolean(currentChampSelect && (currentChampSelect.isLocalPickCompleted || currentChampSelect.is_local_pick_completed));
+                if (isLocked) {
+                    if (champSelectView) champSelectView.style.display = 'none';
+                    if (postLockLobbyView) postLockLobbyView.style.display = 'flex';
+                } else {
+                    if (champSelectView) champSelectView.style.display = 'flex';
+                    if (postLockLobbyView) postLockLobbyView.style.display = 'none';
+                }
                 if (socket && socket.readyState === WebSocket.OPEN) {
                     try {
                         socket.send(JSON.stringify({ type: 'GET_CHAMP_SELECT', token: sessionToken }));
@@ -2866,7 +3318,8 @@ INDEX_HTML = """<!DOCTYPE html>
                 closeReadyCheckModal();
                 stopQueueTimer();
                 mainView.style.display = 'none';
-                champSelectView.style.display = 'none';
+                if (champSelectView) champSelectView.style.display = 'none';
+                if (postLockLobbyView) postLockLobbyView.style.display = 'none';
                 if (inGameView) inGameView.style.display = 'flex';
                 startInGameTimer();
                 phaseDisplay.innerText = '🔥 Oyunda';
@@ -2874,7 +3327,8 @@ INDEX_HTML = """<!DOCTYPE html>
             } else {
                 stopInGameTimer();
                 if (inGameView) inGameView.style.display = 'none';
-                champSelectView.style.display = 'none';
+                if (champSelectView) champSelectView.style.display = 'none';
+                if (postLockLobbyView) postLockLobbyView.style.display = 'none';
                 mainView.style.display = 'flex';
                 clearInterval(timerCountdownInterval);
                 lastFetchedRunesChampId = 0;
@@ -2920,72 +3374,253 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         }
 
-                function handleLaneSwapsUpdate(swaps) {
-            if (!Array.isArray(swaps) || swaps.length === 0) {
-                if (tradeNoticeBanner && tradeNoticeBanner.dataset.type === 'lane') {
-                    tradeNoticeBanner.style.display = 'none';
+        function syncTradeBanners(type, sender, text, showAcceptDecline, showCancel) {
+            [
+                { banner: tradeNoticeBanner, typeEl: tradeNoticeType, senderEl: tradeNoticeSender, textEl: tradeNoticeText, acceptEl: tradeAcceptBtn, declineEl: tradeDeclineBtn, cancelEl: tradeCancelBtn },
+                { banner: lobbyTradeNoticeBanner, typeEl: lobbyTradeNoticeType, senderEl: lobbyTradeNoticeSender, textEl: lobbyTradeNoticeText, acceptEl: lobbyTradeAcceptBtn, declineEl: lobbyTradeDeclineBtn, cancelEl: lobbyTradeCancelBtn }
+            ].forEach(b => {
+                if (!b.banner) return;
+                b.banner.dataset.type = type;
+                if (b.typeEl) b.typeEl.innerText = (type === 'lane') ? 'KORİDOR TAKASI' : 'ŞAMPİYON TAKASI';
+                if (b.senderEl) b.senderEl.innerText = sender;
+                if (b.textEl) b.textEl.innerText = text;
+                if (b.acceptEl) b.acceptEl.style.display = showAcceptDecline ? 'block' : 'none';
+                if (b.declineEl) b.declineEl.style.display = showAcceptDecline ? 'block' : 'none';
+                if (b.cancelEl) b.cancelEl.style.display = showCancel ? 'block' : 'none';
+                b.banner.style.display = 'flex';
+            });
+        }
+
+        function hideTradeBanners(type) {
+            [tradeNoticeBanner, lobbyTradeNoticeBanner].forEach(banner => {
+                if (banner && (!type || banner.dataset.type === type)) {
+                    banner.style.display = 'none';
                 }
+            });
+        }
+
+        function handleLaneSwapsUpdate(swaps) {
+            if (!Array.isArray(swaps) || swaps.length === 0) {
+                hideTradeBanners('lane');
                 return;
             }
             const localCellId = currentChampSelect ? (currentChampSelect.localPlayerCellId ?? currentChampSelect.local_player_cell_id) : -1;
             const incoming = swaps.find(s => s.to_cell_id === localCellId && s.status === 'PENDING');
-            if (incoming && tradeNoticeBanner) {
+            if (incoming) {
                 activeSwapCellId = incoming.from_cell_id;
-                tradeNoticeBanner.dataset.type = 'lane';
-                tradeNoticeType.innerText = 'KORİDOR TAKASI';
-                tradeNoticeSender.innerText = `Oyuncu ${incoming.from_cell_id}`;
-                tradeNoticeText.innerText = `${incoming.from_assigned_position || 'Koridor'} ile ${incoming.to_assigned_position || 'Koridor'} takası teklif edildi.`;
-                tradeAcceptBtn.style.display = 'block';
-                tradeDeclineBtn.style.display = 'block';
-                tradeCancelBtn.style.display = 'none';
-                tradeNoticeBanner.style.display = 'flex';
+                syncTradeBanners('lane', `Oyuncu ${incoming.from_cell_id}`, `${incoming.from_assigned_position || 'Koridor'} ile ${incoming.to_assigned_position || 'Koridor'} takası teklif edildi.`, true, false);
                 return;
             }
             const outgoing = swaps.find(s => s.from_cell_id === localCellId && s.status === 'PENDING');
-            if (outgoing && tradeNoticeBanner) {
+            if (outgoing) {
                 activeSwapCellId = outgoing.to_cell_id;
-                tradeNoticeBanner.dataset.type = 'lane';
-                tradeNoticeType.innerText = 'KORİDOR TAKASI';
-                tradeNoticeSender.innerText = `Oyuncu ${outgoing.to_cell_id}`;
-                tradeNoticeText.innerText = 'Koridor takası isteği gönderildi. Yanıt bekleniyor...';
-                tradeAcceptBtn.style.display = 'none';
-                tradeDeclineBtn.style.display = 'none';
-                tradeCancelBtn.style.display = 'block';
-                tradeNoticeBanner.style.display = 'flex';
+                syncTradeBanners('lane', `Oyuncu ${outgoing.to_cell_id}`, 'Koridor takası isteği gönderildi. Yanıt bekleniyor...', false, true);
+                return;
             }
+            hideTradeBanners('lane');
         }
 
         function checkIncomingTrades(trades) {
             if (!Array.isArray(trades) || trades.length === 0) {
-                if (tradeNoticeBanner && tradeNoticeBanner.dataset.type === 'champ') {
-                    tradeNoticeBanner.style.display = 'none';
-                }
+                hideTradeBanners('champ');
                 return;
             }
             const received = trades.find(t => (t.state || '').toUpperCase() === 'RECEIVED');
-            if (received && tradeNoticeBanner) {
+            if (received) {
                 activeTradeId = received.trade_id || received.id;
-                tradeNoticeBanner.dataset.type = 'champ';
-                tradeNoticeType.innerText = 'ŞAMPİYON TAKASI';
-                tradeNoticeSender.innerText = `Takım Arkadaşı (${received.cell_id})`;
-                tradeNoticeText.innerText = 'Şampiyon takası teklif edildi.';
-                tradeAcceptBtn.style.display = 'block';
-                tradeDeclineBtn.style.display = 'block';
-                tradeCancelBtn.style.display = 'none';
-                tradeNoticeBanner.style.display = 'flex';
+                syncTradeBanners('champ', `Takım Arkadaşı (${received.cell_id})`, 'Şampiyon takası teklif edildi.', true, false);
                 return;
             }
             const sent = trades.find(t => (t.state || '').toUpperCase() === 'SENT');
-            if (sent && tradeNoticeBanner) {
+            if (sent) {
                 activeTradeId = sent.trade_id || sent.id;
-                tradeNoticeBanner.dataset.type = 'champ';
-                tradeNoticeType.innerText = 'ŞAMPİYON TAKASI';
-                tradeNoticeSender.innerText = `Takım Arkadaşı (${sent.cell_id})`;
-                tradeNoticeText.innerText = 'Şampiyon takası teklifi gönderildi. Bekleniyor...';
-                tradeAcceptBtn.style.display = 'none';
-                tradeDeclineBtn.style.display = 'none';
-                tradeCancelBtn.style.display = 'block';
-                tradeNoticeBanner.style.display = 'flex';
+                syncTradeBanners('champ', `Takım Arkadaşı (${sent.cell_id})`, 'Şampiyon takası teklifi gönderildi. Bekleniyor...', false, true);
+                return;
+            }
+            hideTradeBanners('champ');
+        }
+
+        const POSITION_SHORT_NAMES = {
+            top: 'TOP',
+            jungle: 'JNG',
+            jug: 'JNG',
+            middle: 'MID',
+            mid: 'MID',
+            bottom: 'BOT',
+            bot: 'BOT',
+            utility: 'SUP',
+            support: 'SUP',
+            supp: 'SUP',
+        };
+
+        function renderPostLockLobby(data) {
+            if (!data) return;
+
+            // 1. Update Timer
+            if (data.timer && lobbyTimerBadge) {
+                const secondsLeft = Number(
+                    data.timer.timeLeftSeconds !== undefined
+                    ? data.timer.timeLeftSeconds
+                    : (data.timer.adjustedTimeLeftInPhase || data.timer.timeLeftInPhase || 30000) / 1000
+                );
+                const s = Math.max(0, Math.floor(secondsLeft));
+                lobbyTimerBadge.innerText = s > 0 ? (s + 's') : '0s';
+                if (s <= 5) {
+                    lobbyTimerBadge.style.color = 'var(--danger)';
+                    lobbyTimerBadge.style.borderColor = 'var(--danger)';
+                } else {
+                    lobbyTimerBadge.style.color = 'var(--gold-1)';
+                    lobbyTimerBadge.style.borderColor = 'var(--gold-2)';
+                }
+            }
+
+            const localCellId = data.localPlayerCellId !== undefined ? data.localPlayerCellId : (data.local_player_cell_id ?? -1);
+            const myTeam = Array.isArray(data.myTeam) ? data.myTeam : [];
+            const theirTeam = Array.isArray(data.theirTeam) ? data.theirTeam : [];
+
+            if (lobbyMyTeamCount) lobbyMyTeamCount.innerText = `${myTeam.length} Oyuncu`;
+            if (lobbyTheirTeamCount) lobbyTheirTeamCount.innerText = `${theirTeam.length} Oyuncu`;
+
+            // 2. Render My Team
+            if (lobbyMyTeamList) {
+                lobbyMyTeamList.innerHTML = '';
+                myTeam.forEach((member, idx) => {
+                    const card = createLobbyMemberCard(member, true, localCellId, idx);
+                    lobbyMyTeamList.appendChild(card);
+                });
+            }
+
+            // 3. Render Their Team (Enemy Team)
+            if (lobbyTheirTeamList) {
+                lobbyTheirTeamList.innerHTML = '';
+                theirTeam.forEach((member, idx) => {
+                    const card = createLobbyMemberCard(member, false, -1, idx);
+                    lobbyTheirTeamList.appendChild(card);
+                });
+            }
+        }
+
+        function createLobbyMemberCard(member, isMyTeam, localCellId, idx) {
+            const cellId = member.cellId !== undefined ? member.cellId : member.cell_id;
+            const isMe = (cellId === localCellId);
+            const champId = member.championId || member.champion_id || 0;
+            const pickIntent = member.championPickIntent || member.champion_pick_intent || 0;
+
+            const card = document.createElement('div');
+            card.className = `lobby-player-card ${isMyTeam ? 'team-blue' : 'team-red'}${isMe ? ' is-me' : ''}`;
+            card.dataset.cellId = cellId;
+
+            // Display Name resolution
+            const rawName = (member.summonerName || member.summoner_name || '').trim();
+            let displayName = '';
+            if (isMyTeam) {
+                if (isMe) {
+                    displayName = rawName || 'Sen';
+                } else {
+                    displayName = rawName || `Dost Sihirdar ${idx + 1}`;
+                }
+            } else {
+                // Enemy Team: Riot rules hide summoner names during draft to prevent dodging.
+                // If LCU provides a legitimate name (custom game / unmasked), display it.
+                // Otherwise show 'Gizli / Rakip Oyuncu' - NEVER fabricate fake names!
+                if (rawName && !rawName.startsWith('Summoner ') && rawName !== '0') {
+                    displayName = rawName;
+                } else {
+                    displayName = 'Gizli / Rakip Oyuncu';
+                }
+            }
+
+            // Champion Name and Icon resolution
+            let champName = '';
+            let avatarHtml = '';
+            if (isMyTeam) {
+                const effChampId = champId > 0 ? champId : pickIntent;
+                if (effChampId > 0) {
+                    champName = findChampionName(effChampId);
+                    const iconUrl = getChampionIconUrl(effChampId);
+                    avatarHtml = `<img class="lobby-champ-img" src="${iconUrl}" onerror="this.onerror=null;this.className='lobby-avatar-mystery';this.innerText='?';" alt="${champName}">`;
+                } else {
+                    champName = 'Seçim Yapılıyor...';
+                    avatarHtml = `<div class="lobby-avatar-mystery">?</div>`;
+                }
+            } else {
+                // Enemy Team: Only show champion if locked in (champId > 0). If 0, it is hidden/not locked.
+                if (champId > 0) {
+                    champName = findChampionName(champId);
+                    const iconUrl = getChampionIconUrl(champId);
+                    avatarHtml = `<img class="lobby-champ-img" src="${iconUrl}" onerror="this.onerror=null;this.className='lobby-avatar-mystery';this.innerText='?';" alt="${champName}">`;
+                } else {
+                    champName = 'Gizli / Henüz Seçilmedi';
+                    avatarHtml = `<div class="lobby-avatar-mystery">?</div>`;
+                }
+            }
+
+            // Role / Position
+            const posRaw = (member.assignedPosition || member.assigned_position || '').toLowerCase();
+            const posShort = POSITION_SHORT_NAMES[posRaw] || (posRaw ? posRaw.substring(0, 3).toUpperCase() : '');
+            const roleBadgeOnAvatar = posShort ? `<span class="lobby-role-pill-on-avatar">${posShort}</span>` : '';
+
+            // 'Sen' Badge for local player
+            const meBadgeHtml = isMe ? `<span class="lobby-tag-me">SEN</span>` : '';
+
+            // Actions for teammates (Role swap / Champ trade)
+            let actionHtml = '';
+            if (isMyTeam && !isMe) {
+                actionHtml = `
+                    <div class="lobby-card-actions">
+                        <button class="lobby-btn-swap" onclick="requestLaneSwap(${cellId})" title="Koridor Takası Teklif Et">Rol Takası</button>
+                        <button class="lobby-btn-trade" onclick="requestChampTrade(${cellId})" title="Şampiyon Takası Teklif Et">Takas</button>
+                    </div>
+                `;
+            } else if (isMe) {
+                actionHtml = `
+                    <div class="lobby-card-status-badge">
+                        <span class="lobby-status-pill">KİLİTLENDİ ✓</span>
+                    </div>
+                `;
+            }
+
+            const champClass = (!isMyTeam && champId <= 0) ? 'lobby-champ-title hidden-enemy' : 'lobby-champ-title';
+
+            card.innerHTML = `
+                <div class="lobby-avatar-container">
+                    ${avatarHtml}
+                    ${roleBadgeOnAvatar}
+                </div>
+                <div class="lobby-player-info">
+                    <div class="lobby-player-name-row">
+                        ${meBadgeHtml}
+                        <span class="lobby-player-name" title="${displayName}">${displayName}</span>
+                    </div>
+                    <div class="${champClass}">${champName}</div>
+                </div>
+                ${actionHtml}
+            `;
+
+            return card;
+        }
+
+        function requestLaneSwap(cellId) {
+            if (!sessionToken || cellId === undefined || cellId < 0) return;
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'LANE_SWAP_REQUEST',
+                    toCellId: cellId,
+                    token: sessionToken,
+                }));
+                showErrorToast(`Koridor takası teklifi gönderildi.`);
+            }
+        }
+
+        function requestChampTrade(cellId) {
+            if (!sessionToken || cellId === undefined || cellId < 0) return;
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'TRADE_REQUEST',
+                    tradeId: cellId,
+                    token: sessionToken,
+                }));
+                showErrorToast(`Şampiyon takası teklifi gönderildi.`);
             }
         }
 
@@ -2994,6 +3629,17 @@ INDEX_HTML = """<!DOCTYPE html>
             currentChampSelect = data;
             if (modeCtx) currentModeContext = modeCtx;
             if (eligibility) currentEligibility = eligibility;
+
+            // Auto-transition to Post-Lock Lobby if local pick action is completed
+            const isLocked = Boolean(data.isLocalPickCompleted || data.is_local_pick_completed);
+            if (isLocked) {
+                if (champSelectView) champSelectView.style.display = 'none';
+                if (postLockLobbyView) postLockLobbyView.style.display = 'flex';
+                renderPostLockLobby(data);
+            } else {
+                if (champSelectView) champSelectView.style.display = 'flex';
+                if (postLockLobbyView) postLockLobbyView.style.display = 'none';
+            }
 
             // Cache local player champion & role for in-game view
             if (data && Array.isArray(data.myTeam)) {
@@ -3430,6 +4076,17 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         // Trade & Lane Swap Actions (with debounce guard)
+        // Lobby trade notice banner action synchronization
+        if (lobbyTradeAcceptBtn && tradeAcceptBtn) {
+            lobbyTradeAcceptBtn.addEventListener('click', () => { tradeAcceptBtn.click(); });
+        }
+        if (lobbyTradeDeclineBtn && tradeDeclineBtn) {
+            lobbyTradeDeclineBtn.addEventListener('click', () => { tradeDeclineBtn.click(); });
+        }
+        if (lobbyTradeCancelBtn && tradeCancelBtn) {
+            lobbyTradeCancelBtn.addEventListener('click', () => { tradeCancelBtn.click(); });
+        }
+
         if (tradeAcceptBtn) {
             tradeAcceptBtn.addEventListener('click', () => {
                 if (isTradeActionInFlight) return;
