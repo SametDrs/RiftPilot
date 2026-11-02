@@ -39,6 +39,7 @@ from riftpilot.core.lcu_port import (
     ILcuPort,
     LcuConnectionStatus,
 )
+from riftpilot.core.queue_timer import QueueTimer
 from riftpilot.ui.qr_helper import generate_qr_pixmap
 
 if TYPE_CHECKING:
@@ -262,6 +263,8 @@ class MainWindow(QMainWindow):
         self.lcu_adapter = lcu_adapter
         self._is_quitting: bool = False
         self.tray_icon: QSystemTrayIcon | None = None
+        self.queue_timer = QueueTimer()
+        self.current_phase: GameflowPhase | str | None = None
 
         self.setWindowTitle("RiftPilot — Hextech League Companion")
         self.resize(500, 720)
@@ -506,7 +509,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.tabs)
 
     def _on_poll_tick(self) -> None:
-        """Periodic sync for active device sessions and connection status."""
+        """Periodic sync for active device sessions, connection status, and queue timer."""
         self.update_device_list()
         if self.lcu_adapter is not None:
             creds = getattr(self.lcu_adapter, "credentials", None)
@@ -515,6 +518,18 @@ class MainWindow(QMainWindow):
                 self.on_lcu_status_changed(LcuConnectionStatus.CONNECTED)
             else:
                 self.on_lcu_status_changed(LcuConnectionStatus.DISCONNECTED)
+
+        phase_str = (
+            self.current_phase.value
+            if hasattr(self.current_phase, "value")
+            else str(self.current_phase or "")
+        )
+        if (
+            self.current_phase == GameflowPhase.MATCHMAKING
+            or phase_str.lower() == "matchmaking"
+        ):
+            self.queue_timer.tick()
+            self.gameflow_label.setText(self.queue_timer.display_text)
 
     def refresh_qr(self) -> None:
         """Generate a new OTT token and update the displayed QR pixmap."""
@@ -650,17 +665,36 @@ class MainWindow(QMainWindow):
         if self.tray_icon and self.tray_icon.isVisible():
             self.tray_icon.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 4000)
 
-    def on_gameflow_phase_changed(self, phase: GameflowPhase | str) -> None:
+    def on_gameflow_phase_changed(
+        self,
+        phase: GameflowPhase | str,
+        estimated_duration: float = 0.0,
+    ) -> None:
         """Update gameflow status label based on client phase."""
+        self.current_phase = phase
         phase_str = phase.value if hasattr(phase, "value") else str(phase)
+        is_matchmaking = (
+            phase == GameflowPhase.MATCHMAKING
+            or phase_str.lower() == "matchmaking"
+        )
+
+        if is_matchmaking:
+            if not self.queue_timer.is_running:
+                self.queue_timer.start(estimated_duration)
+            elif estimated_duration > 0.0:
+                self.queue_timer.update_estimated(estimated_duration)
+            self.gameflow_label.setText(self.queue_timer.display_text)
+        else:
+            self.queue_timer.reset()
+
         if phase == GameflowPhase.READY_CHECK or phase_str == "ReadyCheck":
             self.gameflow_label.setText("⚔️ MAÇ BULUNDU!")
             self.show_tray_notification("⚔️ MAÇ BULUNDU!", "Eşleşme bulundu! Kabul etmek için hazır.")
         elif phase == GameflowPhase.CHAMP_SELECT or phase_str == "ChampSelect":
             self.gameflow_label.setText("🏆 Şampiyon Seçimi")
             self.show_tray_notification("🏆 Şampiyon Seçimi", "Sıra sizde veya seçim odası aktif.")
-        elif phase == GameflowPhase.MATCHMAKING or phase_str == "Matchmaking":
-            self.gameflow_label.setText("⏳ Sırada...")
+        elif is_matchmaking:
+            pass
         elif phase == GameflowPhase.IN_PROGRESS or phase_str == "InProgress":
             self.gameflow_label.setText("🔥 Oyunda")
         elif phase == GameflowPhase.LOBBY or phase_str == "Lobby":
@@ -669,6 +703,16 @@ class MainWindow(QMainWindow):
             self.gameflow_label.setText("🎮 Oyun Durumu: -")
         else:
             self.gameflow_label.setText(f"🎮 Oyun Durumu: {phase_str}")
+
+    def start_queue_timer(self, estimated_duration: float = 0.0) -> None:
+        """Start or update matchmaking queue timer."""
+        self.current_phase = GameflowPhase.MATCHMAKING
+        self.queue_timer.start(estimated_duration)
+        self.gameflow_label.setText(self.queue_timer.display_text)
+
+    def stop_queue_timer(self) -> None:
+        """Stop and reset matchmaking queue timer."""
+        self.queue_timer.reset()
 
     def on_lcu_status_changed(self, status: LcuConnectionStatus | str) -> None:
         """Update LCU connection status badge."""
