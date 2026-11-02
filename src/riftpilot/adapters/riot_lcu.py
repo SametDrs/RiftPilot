@@ -28,6 +28,7 @@ from riftpilot.core.post_game import EndOfGameStats, HonorBallot
 from riftpilot.core.lobby import (
     BenchChampion,
     ChampSelectTrade,
+    LaneSwapRequest,
     LobbyData,
     MatchmakingSearchState,
 )
@@ -331,6 +332,20 @@ class RiotLcuAdapter(ILcuPort):
     # Lobby & Matchmaking Implementation (Milestone 4)
     # ========================================================================
 
+    async def create_lobby(self, queue_id: int) -> bool:
+        """Create or switch party lobby for a specific queue ID."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                "/lol-lobby/v2/lobby",
+                json={"queueId": queue_id},
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to create lobby for queue %d: %s", queue_id, exc)
+            return False
+
     async def get_lobby(self) -> LobbyData | None:
         """Retrieve active party lobby data from LCU."""
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
@@ -500,6 +515,60 @@ class RiotLcuAdapter(ILcuPort):
 
     async def cancel_trade(self, trade_id: int) -> bool:
         return await self.cancel_champ_trade(trade_id)
+
+    async def get_lane_swap_requests(self) -> list[LaneSwapRequest]:
+        """Return active lane swap requests in champion select."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return []
+        try:
+            resp = await self._client.get("/lol-champ-select/v1/session/lane-swap-requests")
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    return [
+                        req for item in data
+                        if (req := LaneSwapRequest.from_lcu_dict(item)) is not None
+                    ]
+            return []
+        except Exception as exc:
+            logger.debug("Failed to get lane swap requests: %s", exc)
+            return []
+
+    async def request_lane_swap(self, to_cell_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                f"/lol-champ-select/v1/session/lane-swap-requests/{to_cell_id}"
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to request lane swap with cell %d: %s", to_cell_id, exc)
+            return False
+
+    async def accept_lane_swap(self, from_cell_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                f"/lol-champ-select/v1/session/lane-swap-requests/{from_cell_id}/accept"
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to accept lane swap with cell %d: %s", from_cell_id, exc)
+            return False
+
+    async def decline_lane_swap(self, from_cell_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                f"/lol-champ-select/v1/session/lane-swap-requests/{from_cell_id}/decline"
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to decline lane swap with cell %d: %s", from_cell_id, exc)
+            return False
 
     async def request_champ_trade(self, trade_id: int) -> bool:
         """Request or initiate a champion trade offer with a teammate via LCU REST API."""

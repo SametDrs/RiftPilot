@@ -337,6 +337,22 @@ class MockLcuAdapter(ILcuPort):
     # Lobby & Matchmaking Implementation (Milestone 4)
     # ========================================================================
 
+    async def create_lobby(self, queue_id: int) -> bool:
+        """Create or switch party lobby for a specific queue ID."""
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        self._lobby_data = LobbyData(
+            queue_id=queue_id,
+            game_mode="CLASSIC" if queue_id != 450 else "ARAM",
+            is_leader=True,
+            can_start_matchmaking=True,
+            members=[LobbyMember(summoner_id=1, summoner_name="MockLocalUser", is_leader=True, is_local_member=True)],
+        )
+        self._gameflow_phase = GameflowPhase.LOBBY
+        await self._dispatch_lobby(self._lobby_data)
+        await self.simulate_phase_change(GameflowPhase.LOBBY)
+        return True
+
     async def get_lobby(self) -> LobbyData | None:
         if self._status != LcuConnectionStatus.CONNECTED:
             return None
@@ -619,6 +635,54 @@ class MockLcuAdapter(ILcuPort):
 
     def get_lane_swap_requests(self) -> list[LaneSwapRequest]:
         return list(self._lane_swap_requests)
+
+    async def request_lane_swap(self, to_cell_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        from_cell = self._champ_select_session.local_player_cell_id if self._champ_select_session else 0
+        if from_cell == to_cell_id or to_cell_id < 0:
+            return False
+        await self.simulate_request_lane_swap(from_cell_id=from_cell, to_cell_id=to_cell_id)
+        return True
+
+    async def accept_lane_swap(self, from_cell_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        req = next((r for r in self._lane_swap_requests if r.from_cell_id == from_cell_id and r.status == "PENDING"), None)
+        if not req:
+            return False
+        idx = self._lane_swap_requests.index(req)
+        self._lane_swap_requests[idx] = LaneSwapRequest(
+            from_cell_id=req.from_cell_id,
+            to_cell_id=req.to_cell_id,
+            from_assigned_position=req.from_assigned_position,
+            to_assigned_position=req.to_assigned_position,
+            status="ACCEPTED",
+        )
+        # Apply swap in active session
+        if self._champ_select_session:
+            p1 = next((p for p in self._champ_select_session.my_team if p.cell_id == req.from_cell_id), None)
+            p2 = next((p for p in self._champ_select_session.my_team if p.cell_id == req.to_cell_id), None)
+            if p1 and p2:
+                p1.assigned_position, p2.assigned_position = p2.assigned_position, p1.assigned_position
+                await self._dispatch_champ_select(self._champ_select_session)
+        return True
+
+    async def decline_lane_swap(self, from_cell_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        req = next((r for r in self._lane_swap_requests if r.from_cell_id == from_cell_id and r.status == "PENDING"), None)
+        if not req:
+            return False
+        idx = self._lane_swap_requests.index(req)
+        self._lane_swap_requests[idx] = LaneSwapRequest(
+            from_cell_id=req.from_cell_id,
+            to_cell_id=req.to_cell_id,
+            from_assigned_position=req.from_assigned_position,
+            to_assigned_position=req.to_assigned_position,
+            status="DECLINED",
+        )
+        return True
 
     async def simulate_lobby(self, lobby: LobbyData | None) -> None:
         self._lobby_data = lobby

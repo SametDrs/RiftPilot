@@ -267,8 +267,7 @@ class MainWindow(QMainWindow):
         self.current_phase: GameflowPhase | str | None = None
 
         self.setWindowTitle("RiftPilot — Hextech League Companion")
-        self.resize(500, 720)
-        self.setMinimumSize(440, 640)
+        self.setFixedSize(500, 780)
         self.setStyleSheet(HEXTECH_STYLE)
 
         self._setup_ui()

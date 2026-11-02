@@ -580,6 +580,275 @@ INDEX_HTML = """<!DOCTYPE html>
             color: var(--arcane-cyan);
         }
 
+                /* Mobile-First Champion Select Container Fix */
+        #champSelectView {
+            display: none;
+            flex-direction: column;
+            width: 100%;
+            max-width: 100%;
+            gap: 12px;
+            box-sizing: border-box;
+            overflow-x: hidden;
+        }
+
+        @media (max-width: 480px) {
+            .teams-summary {
+                grid-template-columns: 1fr !important;
+            }
+        }
+
+        /* Queue Mode Selector Card */
+        .mode-selector-card {
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 14px;
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .mode-card-title {
+            font-size: 11px;
+            font-weight: 800;
+            color: var(--gold-2);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .mode-chips-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .mode-chip {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            border-radius: var(--radius-sm);
+            padding: 10px 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            min-height: 44px;
+            touch-action: manipulation;
+        }
+
+        .mode-chip.active {
+            background: rgba(10, 200, 185, 0.15);
+            border-color: var(--arcane-cyan);
+            color: var(--arcane-cyan);
+            box-shadow: 0 0 10px var(--arcane-cyan-glow);
+        }
+
+        .btn-start-queue {
+            background: linear-gradient(135deg, var(--gold-1), var(--gold-2));
+            color: #03060a;
+            border: none;
+            border-radius: var(--radius-md);
+            padding: 14px;
+            font-size: 15px;
+            font-weight: 800;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            min-height: 48px;
+            touch-action: manipulation;
+            transition: transform 0.1s ease, box-shadow 0.2s ease;
+        }
+
+        .btn-start-queue:active {
+            transform: scale(0.98);
+        }
+
+        /* Live Queue Timer Card */
+        .queue-timer-card {
+            background: rgba(10, 16, 29, 0.85);
+            border: 1px solid var(--arcane-cyan);
+            box-shadow: 0 0 20px rgba(10, 200, 185, 0.2);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            text-align: center;
+        }
+
+        .queue-timer-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 800;
+            color: var(--arcane-cyan);
+            letter-spacing: 1px;
+        }
+
+        .queue-pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--arcane-cyan);
+            box-shadow: 0 0 8px var(--arcane-cyan);
+            animation: pulse-dot 1.5s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.7; }
+        }
+
+        .queue-timer-clock {
+            font-size: 36px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            color: #ffffff;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 0 12px var(--arcane-cyan-glow);
+        }
+
+        .queue-estimated-clock {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .btn-cancel-queue {
+            background: rgba(232, 64, 87, 0.15);
+            border: 1px solid #e84057;
+            color: #e84057;
+            border-radius: var(--radius-sm);
+            padding: 10px 20px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 6px;
+            min-height: 44px;
+            width: 100%;
+            touch-action: manipulation;
+        }
+
+        .btn-cancel-queue:active {
+            background: rgba(232, 64, 87, 0.3);
+        }
+
+        /* Trade & Lane Swap Notification Banner */
+        .trade-notice-banner {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid var(--gold-2);
+            box-shadow: 0 0 16px rgba(200, 155, 60, 0.25);
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            animation: slideDown 0.25s ease;
+        }
+
+        .trade-notice-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .trade-notice-type {
+            font-size: 11px;
+            font-weight: 800;
+            color: var(--gold-1);
+            letter-spacing: 0.5px;
+        }
+
+        .trade-notice-sender {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .trade-notice-text {
+            font-size: 13px;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .trade-notice-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .trade-btn-accept {
+            flex: 1;
+            background: linear-gradient(135deg, var(--arcane-cyan), #0a998c);
+            color: #03060a;
+            border: none;
+            border-radius: var(--radius-sm);
+            padding: 10px;
+            font-weight: 800;
+            font-size: 12px;
+            cursor: pointer;
+            min-height: 44px;
+            touch-action: manipulation;
+        }
+
+        .trade-btn-decline {
+            flex: 1;
+            background: rgba(232, 64, 87, 0.2);
+            border: 1px solid #e84057;
+            color: #e84057;
+            border-radius: var(--radius-sm);
+            padding: 10px;
+            font-weight: 800;
+            font-size: 12px;
+            cursor: pointer;
+            min-height: 44px;
+            touch-action: manipulation;
+        }
+
+        .trade-btn-cancel {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            border-radius: var(--radius-sm);
+            padding: 10px;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            min-height: 44px;
+            touch-action: manipulation;
+        }
+
+        /* Quick Swap Buttons in Member Rows */
+        .member-swap-actions {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+        }
+
+        .btn-member-swap {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--card-border);
+            color: var(--text-secondary);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            min-height: 32px;
+            touch-action: manipulation;
+            transition: all 0.15s ease;
+        }
+
+        .btn-member-swap:hover, .btn-member-swap:active {
+            border-color: var(--arcane-cyan);
+            color: var(--arcane-cyan);
+        }
+
         /* Champion Grid */
         .champ-grid-container {
             width: 100%;
@@ -1223,6 +1492,30 @@ INDEX_HTML = """<!DOCTYPE html>
                         League of Legends eşleşmesi bulunduğunda buton parlayacaktır.
                     </div>
                 </div>
+
+                <!-- Live Queue Timer Card -->
+                <div id="queueTimerCard" class="queue-timer-card" style="display: none;">
+                    <div class="queue-timer-header">
+                        <span class="queue-pulse-dot"></span>
+                        <span class="queue-timer-title">SIRA BEKLENİYOR</span>
+                    </div>
+                    <div id="queueTimerClock" class="queue-timer-clock">00:00</div>
+                    <div id="queueEstimatedClock" class="queue-estimated-clock">Tahmini: --:--</div>
+                    <button id="cancelQueueBtn" class="btn-cancel-queue">Sırayı İptal Et</button>
+                </div>
+
+                <!-- Game Mode Selector Card -->
+                <div id="modeSelectorCard" class="mode-selector-card">
+                    <div class="mode-card-title">OYUN MODU SEÇİMİ</div>
+                    <div class="mode-chips-grid">
+                        <button class="mode-chip active" data-queue-id="420">Dereceli Tek/Çift</button>
+                        <button class="mode-chip" data-queue-id="440">Dereceli Esnek</button>
+                        <button class="mode-chip" data-queue-id="400">Normal Sıralı</button>
+                        <button class="mode-chip" data-queue-id="430">Kapalı Seçim</button>
+                        <button class="mode-chip" data-queue-id="450">ARAM</button>
+                    </div>
+                    <button id="startQueueBtn" class="btn-start-queue">Maç Ara</button>
+                </div>
             </div>
 
             <!-- Champion Select View -->
@@ -1235,6 +1528,20 @@ INDEX_HTML = """<!DOCTYPE html>
 
                 <!-- Validation / Client Error Toast -->
                 <div id="csErrorToast" class="error-toast"></div>
+
+                <!-- Trade / Lane Swap In-App Notification Banner -->
+                <div id="tradeNoticeBanner" class="trade-notice-banner" style="display: none;">
+                    <div class="trade-notice-header">
+                        <span id="tradeNoticeType" class="trade-notice-type">ŞAMPİYON TAKASI</span>
+                        <span id="tradeNoticeSender" class="trade-notice-sender">Takım Arkadaşı</span>
+                    </div>
+                    <div id="tradeNoticeText" class="trade-notice-text">Takas teklifi gönderildi.</div>
+                    <div class="trade-notice-actions">
+                        <button id="tradeAcceptBtn" class="trade-btn-accept">KABUL ET</button>
+                        <button id="tradeDeclineBtn" class="trade-btn-decline">REDDET</button>
+                        <button id="tradeCancelBtn" class="trade-btn-cancel" style="display: none;">İPTAL ET</button>
+                    </div>
+                </div>
 
                 <div class="cs-top-bar">
                     <div class="cs-badges">
@@ -1427,6 +1734,20 @@ INDEX_HTML = """<!DOCTYPE html>
 
         // Navigation DOM references
         const gameTabPanel = document.getElementById('gameTabPanel');
+        const queueTimerCard = document.getElementById('queueTimerCard');
+        const queueTimerClock = document.getElementById('queueTimerClock');
+        const queueEstimatedClock = document.getElementById('queueEstimatedClock');
+        const cancelQueueBtn = document.getElementById('cancelQueueBtn');
+        const modeSelectorCard = document.getElementById('modeSelectorCard');
+        const startQueueBtn = document.getElementById('startQueueBtn');
+        const modeChips = document.querySelectorAll('.mode-chip');
+        const tradeNoticeBanner = document.getElementById('tradeNoticeBanner');
+        const tradeNoticeType = document.getElementById('tradeNoticeType');
+        const tradeNoticeSender = document.getElementById('tradeNoticeSender');
+        const tradeNoticeText = document.getElementById('tradeNoticeText');
+        const tradeAcceptBtn = document.getElementById('tradeAcceptBtn');
+        const tradeDeclineBtn = document.getElementById('tradeDeclineBtn');
+        const tradeCancelBtn = document.getElementById('tradeCancelBtn');
         const loadoutTabPanel = document.getElementById('loadoutTabPanel');
         const stationView = document.getElementById('stationView');
         const navTabGame = document.getElementById('navTabGame');
@@ -1805,20 +2126,93 @@ INDEX_HTML = """<!DOCTYPE html>
                         phaseDisplay.innerText = '⏳ Sırada...';
                         acceptBtn.innerText = 'SIRADA BEKLENİYOR';
                         infoMessage.innerText = 'Eşleşme aranıyor...';
+                        startQueueTimer();
                     } else if (p === 'InProgress') {
+                        stopQueueTimer();
                         phaseDisplay.innerText = '🔥 Oyunda';
                         acceptBtn.innerText = 'OYUNDASINIZ';
                         infoMessage.innerText = 'Karşılaşma devam ediyor.';
                     } else if (p === 'Lobby') {
+                        stopQueueTimer();
                         phaseDisplay.innerText = '🏠 Lobide';
                         acceptBtn.innerText = 'LOBİDE';
                         infoMessage.innerText = 'Oda liderinin sırayı başlatması bekleniyor.';
                     } else {
+                        stopQueueTimer();
                         phaseDisplay.innerText = '🎮 Oyun Dışı';
                         acceptBtn.innerText = 'BEKLENİYOR';
                         infoMessage.innerText = 'League Client bağlantısı bekleniyor...';
                     }
                 }
+            }
+        }
+
+                function handleLaneSwapsUpdate(swaps) {
+            if (!Array.isArray(swaps) || swaps.length === 0) {
+                if (tradeNoticeBanner && tradeNoticeBanner.dataset.type === 'lane') {
+                    tradeNoticeBanner.style.display = 'none';
+                }
+                return;
+            }
+            const localCellId = currentChampSelect ? (currentChampSelect.localPlayerCellId ?? currentChampSelect.local_player_cell_id) : -1;
+            const incoming = swaps.find(s => s.to_cell_id === localCellId && s.status === 'PENDING');
+            if (incoming && tradeNoticeBanner) {
+                activeSwapCellId = incoming.from_cell_id;
+                tradeNoticeBanner.dataset.type = 'lane';
+                tradeNoticeType.innerText = 'KORİDOR TAKASI';
+                tradeNoticeSender.innerText = `Oyuncu ${incoming.from_cell_id}`;
+                tradeNoticeText.innerText = `${incoming.from_assigned_position || 'Koridor'} ile ${incoming.to_assigned_position || 'Koridor'} takası teklif edildi.`;
+                tradeAcceptBtn.style.display = 'block';
+                tradeDeclineBtn.style.display = 'block';
+                tradeCancelBtn.style.display = 'none';
+                tradeNoticeBanner.style.display = 'flex';
+                return;
+            }
+            const outgoing = swaps.find(s => s.from_cell_id === localCellId && s.status === 'PENDING');
+            if (outgoing && tradeNoticeBanner) {
+                activeSwapCellId = outgoing.to_cell_id;
+                tradeNoticeBanner.dataset.type = 'lane';
+                tradeNoticeType.innerText = 'KORİDOR TAKASI';
+                tradeNoticeSender.innerText = `Oyuncu ${outgoing.to_cell_id}`;
+                tradeNoticeText.innerText = 'Koridor takası isteği gönderildi. Yanıt bekleniyor...';
+                tradeAcceptBtn.style.display = 'none';
+                tradeDeclineBtn.style.display = 'none';
+                tradeCancelBtn.style.display = 'block';
+                tradeNoticeBanner.style.display = 'flex';
+            }
+        }
+
+        function checkIncomingTrades(trades) {
+            if (!Array.isArray(trades) || trades.length === 0) {
+                if (tradeNoticeBanner && tradeNoticeBanner.dataset.type === 'champ') {
+                    tradeNoticeBanner.style.display = 'none';
+                }
+                return;
+            }
+            const received = trades.find(t => (t.state || '').toUpperCase() === 'RECEIVED');
+            if (received && tradeNoticeBanner) {
+                activeTradeId = received.trade_id || received.id;
+                tradeNoticeBanner.dataset.type = 'champ';
+                tradeNoticeType.innerText = 'ŞAMPİYON TAKASI';
+                tradeNoticeSender.innerText = `Takım Arkadaşı (${received.cell_id})`;
+                tradeNoticeText.innerText = 'Şampiyon takası teklif edildi.';
+                tradeAcceptBtn.style.display = 'block';
+                tradeDeclineBtn.style.display = 'block';
+                tradeCancelBtn.style.display = 'none';
+                tradeNoticeBanner.style.display = 'flex';
+                return;
+            }
+            const sent = trades.find(t => (t.state || '').toUpperCase() === 'SENT');
+            if (sent && tradeNoticeBanner) {
+                activeTradeId = sent.trade_id || sent.id;
+                tradeNoticeBanner.dataset.type = 'champ';
+                tradeNoticeType.innerText = 'ŞAMPİYON TAKASI';
+                tradeNoticeSender.innerText = `Takım Arkadaşı (${sent.cell_id})`;
+                tradeNoticeText.innerText = 'Şampiyon takası teklifi gönderildi. Bekleniyor...';
+                tradeAcceptBtn.style.display = 'none';
+                tradeDeclineBtn.style.display = 'none';
+                tradeCancelBtn.style.display = 'block';
+                tradeNoticeBanner.style.display = 'flex';
             }
         }
 
@@ -2039,6 +2433,14 @@ INDEX_HTML = """<!DOCTYPE html>
                 return (c.name || '').toLowerCase().includes(query);
             });
 
+            if (filtered.length === 0) {
+                const emptyNotice = document.createElement('div');
+                emptyNotice.style.cssText = 'grid-column: 1 / -1; padding: 24px 12px; text-align: center; color: var(--text-muted); font-size: 13px;';
+                emptyNotice.innerText = query ? `"${query}" ile eşleşen şampiyon bulunamadı.` : 'Karakter havuzunda şampiyon bulunamadı.';
+                champGrid.appendChild(emptyNotice);
+                return;
+            }
+
             filtered.forEach(c => {
                 const item = document.createElement('div');
                 const isBanned = bannedSet.has(c.id);
@@ -2051,6 +2453,7 @@ INDEX_HTML = """<!DOCTYPE html>
                     + (isSelected ? ' selected' : '')
                     + (isBanned ? ' banned' : '')
                     + ((!isBanned && isUnselectable) ? ' unavailable' : '');
+                item.style.touchAction = 'manipulation';
 
                 const badgeHtml = isBanned
                     ? '<span class="champ-ban-badge">YASAKLI</span>'
@@ -2064,9 +2467,15 @@ INDEX_HTML = """<!DOCTYPE html>
                 `;
 
                 if (!isUnselectable) {
-                    item.addEventListener('click', () => {
+                    const doSelect = (e) => {
+                        if (e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }
                         selectChampion(c.id, c.name);
-                    });
+                    };
+                    item.addEventListener('click', doSelect);
+                    item.addEventListener('pointerdown', doSelect);
                 }
 
                 champGrid.appendChild(item);
@@ -2143,6 +2552,160 @@ INDEX_HTML = """<!DOCTYPE html>
                 submitCompleteAction('pick');
             }
         });
+
+        // Mode chips click
+        if (modeChips) {
+            modeChips.forEach(chip => {
+                chip.addEventListener('click', () => {
+                    modeChips.forEach(c => c.classList.remove('active'));
+                    chip.classList.add('active');
+                    selectedQueueId = parseInt(chip.dataset.queueId || '420', 10);
+                });
+            });
+        }
+
+        // Start Queue button
+        if (startQueueBtn) {
+            startQueueBtn.addEventListener('click', () => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    startQueueTimer(0);
+                    socket.send(JSON.stringify({
+                        type: 'START_MATCHMAKING',
+                        token: sessionToken,
+                        queueId: selectedQueueId
+                    }));
+                } else {
+                    fetch('/api/lobby/matchmaking/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ queueId: selectedQueueId })
+                    }).then(() => startQueueTimer(0)).catch(() => {});
+                }
+            });
+        }
+
+        // Cancel Queue button
+        if (cancelQueueBtn) {
+            cancelQueueBtn.addEventListener('click', () => {
+                stopQueueTimer();
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'CANCEL_MATCHMAKING',
+                        token: sessionToken
+                    }));
+                } else {
+                    fetch('/api/lobby/matchmaking/cancel', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    }).catch(() => {});
+                }
+            });
+        }
+
+        // Trade & Lane Swap Actions (with debounce guard)
+        if (tradeAcceptBtn) {
+            tradeAcceptBtn.addEventListener('click', () => {
+                if (isTradeActionInFlight) return;
+                isTradeActionInFlight = true;
+                const isLane = (tradeNoticeBanner && tradeNoticeBanner.dataset.type === 'lane');
+                if (isLane && activeSwapCellId > 0) {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: 'LANE_SWAP_ACCEPT',
+                            token: sessionToken,
+                            fromCellId: activeSwapCellId
+                        }));
+                    }
+                } else if (activeTradeId > 0) {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: 'TRADE_ACCEPT',
+                            token: sessionToken,
+                            tradeId: activeTradeId
+                        }));
+                    }
+                }
+                if (tradeNoticeBanner) tradeNoticeBanner.style.display = 'none';
+                setTimeout(() => { isTradeActionInFlight = false; }, 800);
+            });
+        }
+
+        if (tradeDeclineBtn) {
+            tradeDeclineBtn.addEventListener('click', () => {
+                if (isTradeActionInFlight) return;
+                isTradeActionInFlight = true;
+                const isLane = (tradeNoticeBanner && tradeNoticeBanner.dataset.type === 'lane');
+                if (isLane && activeSwapCellId > 0) {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: 'LANE_SWAP_DECLINE',
+                            token: sessionToken,
+                            fromCellId: activeSwapCellId
+                        }));
+                    }
+                } else if (activeTradeId > 0) {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: 'TRADE_DECLINE',
+                            token: sessionToken,
+                            tradeId: activeTradeId
+                        }));
+                    }
+                }
+                if (tradeNoticeBanner) tradeNoticeBanner.style.display = 'none';
+                setTimeout(() => { isTradeActionInFlight = false; }, 800);
+            });
+        }
+
+        if (tradeCancelBtn) {
+            tradeCancelBtn.addEventListener('click', () => {
+                if (isTradeActionInFlight) return;
+                isTradeActionInFlight = true;
+                if (activeTradeId > 0 && socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'TRADE_CANCEL',
+                        token: sessionToken,
+                        tradeId: activeTradeId
+                    }));
+                }
+                if (tradeNoticeBanner) tradeNoticeBanner.style.display = 'none';
+                setTimeout(() => { isTradeActionInFlight = false; }, 800);
+            });
+        }
+
+        // Teammate quick swap click delegation
+        const myTeamListEl = document.getElementById('myTeamList');
+        if (myTeamListEl) {
+            myTeamListEl.addEventListener('click', (e) => {
+                const btn = e.target.closest('.btn-member-swap');
+                if (!btn || isTradeActionInFlight) return;
+                isTradeActionInFlight = true;
+                const cell = parseInt(btn.dataset.cell || '0', 10);
+                const action = btn.dataset.action;
+                if (action === 'trade-lane' && cell >= 0) {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: 'LANE_SWAP_REQUEST',
+                            token: sessionToken,
+                            toCellId: cell
+                        }));
+                    }
+                } else if (action === 'trade-champ' && cell >= 0) {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: 'TRADE_REQUEST',
+                            token: sessionToken,
+                            tradeId: cell
+                        }));
+                    }
+                }
+                btn.style.opacity = '0.5';
+                setTimeout(() => {
+                    btn.style.opacity = '1';
+                    isTradeActionInFlight = false;
+                }, 1000);
+            });
+        }
 
         csBanBtn.addEventListener('click', () => {
             if (!csBanBtn.disabled) {
@@ -2394,6 +2957,57 @@ class ApplyRunePageRequest(BaseModel):
     )
 
 
+
+class CreateLobbyRequest(BaseModel):
+    queueId: int = Field(..., description="Target queue ID (e.g. 420 for Solo/Duo, 440 for Flex, 450 for ARAM)")
+
+
+class StartMatchmakingRequest(BaseModel):
+    queueId: int | None = Field(default=None, description="Optional target queue ID")
+
+
+class TradeActionRequest(BaseModel):
+    tradeId: int = Field(..., description="Trade entity ID")
+
+
+class LaneSwapActionRequest(BaseModel):
+    cellId: int = Field(..., description="Target or sender cell ID")
+
+
+DEFAULT_CHAMPION_CATALOG: list[ChampionSummary] = [
+    ChampionSummary(id=1, name="Annie", roles=["mage"]),
+    ChampionSummary(id=2, name="Olaf", roles=["fighter"]),
+    ChampionSummary(id=3, name="Galio", roles=["tank", "mage"]),
+    ChampionSummary(id=4, name="Twisted Fate", roles=["mage"]),
+    ChampionSummary(id=5, name="Xin Zhao", roles=["fighter"]),
+    ChampionSummary(id=6, name="Urgot", roles=["fighter", "tank"]),
+    ChampionSummary(id=7, name="LeBlanc", roles=["assassin", "mage"]),
+    ChampionSummary(id=8, name="Vladimir", roles=["mage"]),
+    ChampionSummary(id=9, name="Fiddlesticks", roles=["mage"]),
+    ChampionSummary(id=10, name="Kayle", roles=["fighter", "mage"]),
+    ChampionSummary(id=11, name="Master Yi", roles=["assassin"]),
+    ChampionSummary(id=12, name="Alistar", roles=["tank", "support"]),
+    ChampionSummary(id=13, name="Ryze", roles=["mage"]),
+    ChampionSummary(id=14, name="Sion", roles=["tank", "fighter"]),
+    ChampionSummary(id=15, name="Sivir", roles=["marksman"]),
+    ChampionSummary(id=16, name="Soraka", roles=["support", "mage"]),
+    ChampionSummary(id=17, name="Teemo", roles=["marksman", "mage"]),
+    ChampionSummary(id=18, name="Tristana", roles=["marksman"]),
+    ChampionSummary(id=19, name="Warwick", roles=["fighter", "tank"]),
+    ChampionSummary(id=20, name="Nunu & Willump", roles=["tank", "fighter"]),
+    ChampionSummary(id=21, name="Miss Fortune", roles=["marksman"]),
+    ChampionSummary(id=22, name="Ashe", roles=["marksman", "support"]),
+    ChampionSummary(id=64, name="Lee Sin", roles=["fighter"]),
+    ChampionSummary(id=84, name="Akali", roles=["assassin"]),
+    ChampionSummary(id=103, name="Ahri", roles=["mage", "assassin"]),
+    ChampionSummary(id=157, name="Yasuo", roles=["fighter", "assassin"]),
+    ChampionSummary(id=222, name="Jinx", roles=["marksman"]),
+    ChampionSummary(id=236, name="Lucian", roles=["marksman"]),
+    ChampionSummary(id=268, name="Azir", roles=["mage"]),
+    ChampionSummary(id=412, name="Thresh", roles=["support", "tank"]),
+]
+
+
 def create_app(
     ott_manager: OTTManager,
     session_manager: SessionManager,
@@ -2540,6 +3154,27 @@ def create_app(
                                     ui_bridge.notify_phase_change(phase)
                                 except Exception as exc:
                                     logger.debug("Bridge phase notify error: %s", exc)
+
+                        # Live queue telemetry during Matchmaking
+                        if phase_str == "Matchmaking":
+                            sleep_duration = 1.0
+                            try:
+                                search = await lcu_adapter.get_matchmaking_search()
+                                if search is not None:
+                                    search_payload = {
+                                        "type": "MATCHMAKING_SEARCH_UPDATE",
+                                        "search": search.model_dump(),
+                                    }
+                                    dead_ws = []
+                                    for ws in list(active_connections):
+                                        try:
+                                            await ws.send_json(search_payload)
+                                        except Exception:
+                                            dead_ws.append(ws)
+                                    for ws in dead_ws:
+                                        active_connections.discard(ws)
+                            except Exception as exc:
+                                logger.debug("Matchmaking search monitor query error: %s", exc)
 
                         # High-frequency synchronization during ChampSelect
                         if phase_str == "ChampSelect":
@@ -2721,9 +3356,11 @@ def create_app(
     @app.get("/api/champ-select/grid")
     async def get_champ_select_grid() -> dict[str, Any]:
         """Fetch list of selectable and bannable grid champions with live ban/disabled status."""
-        if lcu_adapter is None:
-            return {"champions": []}
-        champions = await lcu_adapter.get_grid_champions()
+        champions = []
+        if lcu_adapter is not None:
+            champions = await lcu_adapter.get_grid_champions()
+        if not champions:
+            champions = DEFAULT_CHAMPION_CATALOG
         session = await lcu_adapter.get_champ_select_session()
         banned_ids = session.get_all_banned_ids() if session is not None else set()
         unavailable_ids = session.get_unavailable_pick_ids() if session is not None else set()
@@ -2868,13 +3505,25 @@ def create_app(
             "search": search.model_dump() if search else None,
         }
 
-    @app.post("/api/lobby/matchmaking/start")
-    async def start_matchmaking_endpoint() -> dict[str, Any]:
-        """Start matchmaking for the active lobby."""
+    @app.post("/api/lobby/create")
+    async def create_lobby_endpoint(payload: CreateLobbyRequest) -> dict[str, Any]:
+        """Create or switch party lobby for a specific queue ID."""
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.create_lobby(payload.queueId)
+        return {"success": bool(success), "queueId": payload.queueId}
+
+    @app.post("/api/lobby/matchmaking/start")
+    async def start_matchmaking_endpoint(
+        payload: StartMatchmakingRequest | None = None,
+    ) -> dict[str, Any]:
+        """Start matchmaking for the active lobby with optional queue selection."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        if payload is not None and payload.queueId is not None and payload.queueId > 0:
+            await lcu_adapter.create_lobby(payload.queueId)
         success = await lcu_adapter.start_matchmaking()
-        return {"success": success}
+        return {"success": bool(success)}
 
     @app.post("/api/lobby/matchmaking/cancel")
     async def cancel_matchmaking_endpoint() -> dict[str, Any]:
@@ -2927,6 +3576,63 @@ def create_app(
             return {"trades": []}
         trades = await lcu_adapter.get_trades()
         return {"trades": [t.model_dump() for t in trades]}
+
+    @app.post("/api/champ-select/trade/request")
+    async def request_trade_endpoint(payload: TradeActionRequest) -> dict[str, Any]:
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.request_trade(payload.tradeId)
+        return {"success": bool(success), "tradeId": payload.tradeId}
+
+    @app.post("/api/champ-select/trade/accept")
+    async def accept_trade_endpoint(payload: TradeActionRequest) -> dict[str, Any]:
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.accept_trade(payload.tradeId)
+        return {"success": bool(success), "tradeId": payload.tradeId}
+
+    @app.post("/api/champ-select/trade/decline")
+    async def decline_trade_endpoint(payload: TradeActionRequest) -> dict[str, Any]:
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.decline_trade(payload.tradeId)
+        return {"success": bool(success), "tradeId": payload.tradeId}
+
+    @app.post("/api/champ-select/trade/cancel")
+    async def cancel_trade_endpoint(payload: TradeActionRequest) -> dict[str, Any]:
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.cancel_trade(payload.tradeId)
+        return {"success": bool(success), "tradeId": payload.tradeId}
+
+    @app.get("/api/champ-select/lane-swaps")
+    async def get_lane_swaps_endpoint() -> dict[str, Any]:
+        if lcu_adapter is None:
+            return {"laneSwaps": []}
+        swaps_val = lcu_adapter.get_lane_swap_requests()
+        swaps = await swaps_val if inspect.isawaitable(swaps_val) else swaps_val
+        return {"laneSwaps": [s.model_dump() for s in (swaps or [])]}
+
+    @app.post("/api/champ-select/lane-swap/request")
+    async def request_lane_swap_endpoint(payload: LaneSwapActionRequest) -> dict[str, Any]:
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.request_lane_swap(payload.cellId)
+        return {"success": bool(success), "toCellId": payload.cellId}
+
+    @app.post("/api/champ-select/lane-swap/accept")
+    async def accept_lane_swap_endpoint(payload: LaneSwapActionRequest) -> dict[str, Any]:
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.accept_lane_swap(payload.cellId)
+        return {"success": bool(success), "fromCellId": payload.cellId}
+
+    @app.post("/api/champ-select/lane-swap/decline")
+    async def decline_lane_swap_endpoint(payload: LaneSwapActionRequest) -> dict[str, Any]:
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.decline_lane_swap(payload.cellId)
+        return {"success": bool(success), "fromCellId": payload.cellId}
 
 
     # =========================================================================
@@ -3101,7 +3807,11 @@ def create_app(
                     grid_data = []
                     if lcu_adapter is not None:
                         champs = await lcu_adapter.get_grid_champions()
+                        if not champs:
+                            champs = DEFAULT_CHAMPION_CATALOG
                         grid_data = [c.to_dict() for c in champs]
+                    else:
+                        grid_data = [c.to_dict() for c in DEFAULT_CHAMPION_CATALOG]
                     await websocket.send_json(
                         {
                             "type": "GRID_CHAMPIONS",
@@ -3225,8 +3935,15 @@ def create_app(
                         "search": search_obj.model_dump() if search_obj else None,
                     })
                 elif cmd_type == "START_MATCHMAKING":
+                    q_id = int(data.get("queueId", 0) or 0)
+                    if q_id > 0 and lcu_adapter:
+                        await lcu_adapter.create_lobby(q_id)
                     success = await lcu_adapter.start_matchmaking() if lcu_adapter else False
-                    await websocket.send_json({"type": "MATCHMAKING_STARTED", "success": success})
+                    await websocket.send_json({"type": "MATCHMAKING_STARTED", "success": success, "queueId": q_id})
+                elif cmd_type == "CREATE_LOBBY":
+                    q_id = int(data.get("queueId", 0) or 0)
+                    success = await lcu_adapter.create_lobby(q_id) if (lcu_adapter and q_id > 0) else False
+                    await websocket.send_json({"type": "LOBBY_CREATED", "success": success, "queueId": q_id})
                 elif cmd_type == "CANCEL_MATCHMAKING":
                     success = await lcu_adapter.cancel_matchmaking() if lcu_adapter else False
                     await websocket.send_json({"type": "MATCHMAKING_CANCELED", "success": success})
@@ -3254,6 +3971,28 @@ def create_app(
                     trade_id = int(data.get("tradeId", 0) or 0)
                     success = await lcu_adapter.decline_trade(trade_id) if lcu_adapter else False
                     await websocket.send_json({"type": "TRADE_RESULT", "tradeId": trade_id, "success": success})
+                elif cmd_type == "TRADE_CANCEL":
+                    trade_id = int(data.get("tradeId", 0) or 0)
+                    success = await lcu_adapter.cancel_trade(trade_id) if lcu_adapter else False
+                    await websocket.send_json({"type": "TRADE_RESULT", "tradeId": trade_id, "action": "cancel", "success": success})
+                elif cmd_type == "GET_LANE_SWAPS":
+                    swaps = []
+                    if lcu_adapter:
+                        swaps_val = lcu_adapter.get_lane_swap_requests()
+                        swaps = await swaps_val if inspect.isawaitable(swaps_val) else swaps_val
+                    await websocket.send_json({"type": "LANE_SWAPS_UPDATE", "laneSwaps": [s.model_dump() for s in swaps]})
+                elif cmd_type == "LANE_SWAP_REQUEST":
+                    to_cell = int(data.get("toCellId", 0) or 0)
+                    success = await lcu_adapter.request_lane_swap(to_cell) if lcu_adapter else False
+                    await websocket.send_json({"type": "LANE_SWAP_RESULT", "toCellId": to_cell, "action": "request", "success": success})
+                elif cmd_type == "LANE_SWAP_ACCEPT":
+                    from_cell = int(data.get("fromCellId", 0) or 0)
+                    success = await lcu_adapter.accept_lane_swap(from_cell) if lcu_adapter else False
+                    await websocket.send_json({"type": "LANE_SWAP_RESULT", "fromCellId": from_cell, "action": "accept", "success": success})
+                elif cmd_type == "LANE_SWAP_DECLINE":
+                    from_cell = int(data.get("fromCellId", 0) or 0)
+                    success = await lcu_adapter.decline_lane_swap(from_cell) if lcu_adapter else False
+                    await websocket.send_json({"type": "LANE_SWAP_RESULT", "fromCellId": from_cell, "action": "decline", "success": success})
                 elif cmd_type == "GET_EOG_STATS":
                     eog = await lcu_adapter.get_end_of_game_stats() if lcu_adapter else None
                     await websocket.send_json({

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         ChampSelectTrade,
         LobbyData,
         MatchmakingSearchState,
+        LaneSwapRequest,
     )
     from riftpilot.core.post_game import EndOfGameStats, HonorBallot
     from riftpilot.core.runes_spells import RecommendedRunePage, RunePage, SummonerSpell
@@ -95,6 +96,10 @@ class ILcuPort(ABC):
     # ========================================================================
     # Lobby & Matchmaking Contract (Milestone 4)
     # ========================================================================
+
+    async def create_lobby(self, queue_id: int) -> bool:
+        """Create or switch party lobby for a specific queue ID."""
+        return False
 
     async def get_lobby(self) -> LobbyData | None:
         """Retrieve active party lobby data from LCU, or None if not in lobby."""
@@ -201,6 +206,26 @@ class ILcuPort(ABC):
 
     async def decline_trade(self, trade_id: int) -> bool:
         """Decline an incoming champion trade offer."""
+        return False
+
+    async def cancel_trade(self, trade_id: int) -> bool:
+        """Cancel an outgoing champion trade offer."""
+        return False
+
+    async def get_lane_swap_requests(self) -> list[LaneSwapRequest]:
+        """Return active lane swap requests in champion select."""
+        return []
+
+    async def request_lane_swap(self, to_cell_id: int) -> bool:
+        """Send lane swap request to a teammate."""
+        return False
+
+    async def accept_lane_swap(self, from_cell_id: int) -> bool:
+        """Accept an incoming lane swap request from a teammate."""
+        return False
+
+    async def decline_lane_swap(self, from_cell_id: int) -> bool:
+        """Decline an incoming lane swap request from a teammate."""
         return False
 
     # ========================================================================
