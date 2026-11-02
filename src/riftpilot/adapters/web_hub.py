@@ -1250,77 +1250,102 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .runes-title {
-            font-size: 10px;
+            font-size: 11px;
             font-weight: 800;
             color: var(--gold-2);
             letter-spacing: 0.8px;
             text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
         .runes-cards-grid {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 10px;
             width: 100%;
         }
 
         .rune-card {
-            background: rgba(14, 23, 42, 0.92);
-            border: 1.5px solid var(--card-border);
-            border-radius: 12px;
-            padding: 10px 14px;
+            background: linear-gradient(135deg, rgba(16, 25, 46, 0.95) 0%, rgba(9, 15, 28, 0.95) 100%);
+            border: 1.5px solid rgba(200, 170, 110, 0.22);
+            border-radius: 14px;
+            padding: 12px 14px;
             cursor: pointer;
             display: flex;
             align-items: center;
             gap: 12px;
-            transition: all var(--transition-fast);
-            min-height: 64px;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            min-height: 68px;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .rune-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 3px;
+            height: 100%;
+            background: transparent;
+            transition: background 0.2s ease;
         }
 
         .rune-card:active {
-            transform: scale(0.98);
+            transform: scale(0.985);
         }
 
         .rune-card.selected {
-            border-color: var(--arcane-cyan);
-            background: rgba(10, 200, 185, 0.14);
-            box-shadow: 0 0 16px rgba(10, 200, 185, 0.35);
+            border-color: #0ac8b9;
+            background: linear-gradient(135deg, rgba(10, 200, 185, 0.16) 0%, rgba(13, 24, 40, 0.96) 100%);
+            box-shadow: 0 6px 24px rgba(10, 200, 185, 0.28), inset 0 0 14px rgba(10, 200, 185, 0.08);
+        }
+
+        .rune-card.selected::before {
+            background: #0ac8b9;
+            box-shadow: 0 0 10px #0ac8b9;
         }
 
         .rune-card-left {
             position: relative;
             flex-shrink: 0;
-            width: 44px;
-            height: 44px;
+            width: 48px;
+            height: 48px;
             border-radius: 50%;
-            background: #0b1322;
-            border: 2px solid rgba(200, 170, 110, 0.4);
+            background: radial-gradient(circle, rgba(200, 170, 110, 0.18) 0%, #060b14 100%);
+            border: 2px solid rgba(200, 170, 110, 0.45);
             display: flex;
             align-items: center;
             justify-content: center;
             overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+            transition: all 0.2s ease;
         }
 
         .rune-card.selected .rune-card-left {
-            border-color: var(--arcane-cyan);
-            box-shadow: 0 0 10px var(--arcane-cyan-glow);
+            border-color: #0ac8b9;
+            box-shadow: 0 0 12px rgba(10, 200, 185, 0.6);
+            background: radial-gradient(circle, rgba(10, 200, 185, 0.25) 0%, #060b14 100%);
         }
 
         .rune-card-keystone-icon {
-            width: 38px;
-            height: 38px;
+            width: 40px;
+            height: 40px;
             object-fit: contain;
             border-radius: 50%;
+            filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
         }
 
         .rune-card-body {
             flex: 1;
             display: flex;
             flex-direction: column;
-            gap: 3px;
+            gap: 4px;
             min-width: 0;
         }
 
@@ -1332,35 +1357,37 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .rune-card-keystone-title {
-            font-size: 13px;
+            font-size: 13.5px;
             font-weight: 800;
-            color: var(--gold-1);
+            color: #f0e6d2;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            letter-spacing: 0.3px;
         }
 
         .rune-card.selected .rune-card-keystone-title {
             color: #ffffff;
-            text-shadow: 0 0 8px rgba(10, 200, 185, 0.5);
+            text-shadow: 0 0 10px rgba(10, 200, 185, 0.6);
         }
 
         .rune-card-tree-badge {
             font-size: 10px;
-            font-weight: 700;
-            color: var(--arcane-cyan);
-            background: rgba(10, 200, 185, 0.1);
-            padding: 2px 7px;
-            border-radius: 10px;
-            border: 1px solid rgba(10, 200, 185, 0.3);
+            font-weight: 800;
+            color: #0ac8b9;
+            background: rgba(10, 200, 185, 0.12);
+            padding: 3px 8px;
+            border-radius: 12px;
+            border: 1px solid rgba(10, 200, 185, 0.35);
             white-space: nowrap;
             flex-shrink: 0;
+            letter-spacing: 0.4px;
         }
 
         .rune-card-summary {
             font-size: 11px;
-            color: var(--text-secondary);
-            line-height: 1.35;
+            color: #94a3b8;
+            line-height: 1.4;
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
@@ -1368,62 +1395,66 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .rune-card-radio {
-            width: 22px;
-            height: 22px;
+            width: 24px;
+            height: 24px;
             border-radius: 50%;
-            border: 2px solid var(--card-border);
+            border: 2px solid rgba(200, 170, 110, 0.3);
             flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 12px;
+            font-size: 13px;
             font-weight: 900;
             color: transparent;
-            transition: all var(--transition-fast);
+            transition: all 0.2s ease;
+            background: rgba(14, 23, 42, 0.5);
         }
 
         .rune-card.selected .rune-card-radio {
-            border-color: var(--arcane-cyan);
-            background: var(--arcane-cyan);
-            color: #070b13;
+            border-color: #0ac8b9;
+            background: #0ac8b9;
+            color: #040910;
+            box-shadow: 0 0 10px rgba(10, 200, 185, 0.6);
         }
 
         /* 4th Card: + Kendi Rünümü Oluştur (Özel Rün) */
         .rune-builder-trigger-card {
-            background: rgba(18, 28, 48, 0.7);
-            border: 1.5px dashed var(--gold-2);
-            border-radius: 12px;
-            padding: 12px 14px;
+            background: linear-gradient(135deg, rgba(22, 34, 58, 0.75) 0%, rgba(13, 21, 38, 0.85) 100%);
+            border: 1.5px solid rgba(200, 170, 110, 0.45);
+            border-radius: 14px;
+            padding: 12px 16px;
             cursor: pointer;
             display: flex;
             align-items: center;
             gap: 12px;
-            transition: all var(--transition-fast);
-            min-height: 62px;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            min-height: 66px;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
         }
 
         .rune-builder-trigger-card:hover,
         .rune-builder-trigger-card:active {
-            border-color: var(--gold-1);
-            background: rgba(200, 170, 110, 0.12);
-            box-shadow: 0 0 16px rgba(200, 170, 110, 0.3);
-            transform: scale(0.98);
+            border-color: #f0e6d2;
+            background: linear-gradient(135deg, rgba(32, 48, 80, 0.85) 0%, rgba(18, 28, 50, 0.9) 100%);
+            box-shadow: 0 6px 22px rgba(200, 170, 110, 0.35);
+            transform: scale(0.985);
         }
 
         .rune-builder-trigger-icon {
-            width: 42px;
-            height: 42px;
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
-            background: rgba(200, 170, 110, 0.15);
-            border: 1.5px solid var(--gold-2);
+            background: radial-gradient(circle, rgba(200, 170, 110, 0.25) 0%, rgba(10, 200, 185, 0.1) 100%);
+            border: 1.5px solid #c8aa6e;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 18px;
+            font-size: 19px;
             flex-shrink: 0;
-            color: var(--gold-1);
+            color: #f0e6d2;
+            box-shadow: 0 0 12px rgba(200, 170, 110, 0.3);
         }
 
         .rune-builder-trigger-content {
@@ -1435,23 +1466,28 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .rune-builder-trigger-title {
-            font-size: 13px;
+            font-size: 13.5px;
             font-weight: 800;
-            color: var(--gold-1);
+            color: #f0e6d2;
             letter-spacing: 0.3px;
         }
 
         .rune-builder-trigger-subtitle {
             font-size: 11px;
-            color: var(--text-secondary);
-            line-height: 1.25;
+            color: #94a3b8;
+            line-height: 1.3;
         }
 
         .rune-builder-trigger-arrow {
             font-size: 16px;
-            color: var(--gold-2);
+            color: #c8aa6e;
             font-weight: 800;
             padding-right: 4px;
+            transition: transform 0.2s ease;
+        }
+
+        .rune-builder-trigger-card:hover .rune-builder-trigger-arrow {
+            transform: translateX(3px);
         }
 
         /* Custom Rune Builder Modal Overlay (#customRuneModal) */
@@ -1478,23 +1514,23 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .custom-rune-modal-content {
-            background: #080e1a;
-            border-top: 2px solid var(--gold-2);
-            border-radius: 20px 20px 0 0;
+            background: #070d18;
+            border-top: 2px solid #c8aa6e;
+            border-radius: 22px 22px 0 0;
             width: 100%;
             max-width: 680px;
-            max-height: 92vh;
+            max-height: 94vh;
             display: flex;
             flex-direction: column;
-            box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.8);
+            box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.85);
             animation: slideUp 0.24s cubic-bezier(0.16, 1, 0.3, 1);
             overflow: hidden;
         }
 
         @media (min-width: 768px) {
             .custom-rune-modal-content {
-                border-radius: 16px;
-                border: 2px solid var(--gold-2);
+                border-radius: 18px;
+                border: 2px solid #c8aa6e;
                 max-height: 88vh;
             }
         }
@@ -1616,10 +1652,10 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .tree-btn {
-            background: rgba(14, 23, 42, 0.85);
-            border: 1px solid var(--card-border);
-            border-radius: 8px;
-            padding: 8px 4px;
+            background: rgba(14, 23, 42, 0.88);
+            border: 1.5px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 8px 3px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -1627,6 +1663,7 @@ INDEX_HTML = """<!DOCTYPE html>
             cursor: pointer;
             transition: all var(--transition-fast);
             color: var(--text-secondary);
+            min-height: 58px;
         }
 
         .tree-btn:active {
@@ -1634,10 +1671,10 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .tree-btn.selected {
-            border-color: var(--tree-color, var(--gold-1));
-            background: rgba(200, 170, 110, 0.15);
+            border-color: var(--tree-color, #c8aa6e);
+            background: rgba(200, 170, 110, 0.18);
             color: #ffffff;
-            box-shadow: 0 0 10px rgba(200, 170, 110, 0.3);
+            box-shadow: 0 0 14px rgba(200, 170, 110, 0.35);
         }
 
         .tree-btn.disabled {
@@ -1650,25 +1687,28 @@ INDEX_HTML = """<!DOCTYPE html>
             width: 28px;
             height: 28px;
             object-fit: contain;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
         }
 
         .tree-btn-name {
-            font-size: 9px;
-            font-weight: 700;
+            font-size: 9.5px;
+            font-weight: 800;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 100%;
+            text-align: center;
+            letter-spacing: 0.2px;
         }
 
         .rune-slots-container {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            background: rgba(10, 17, 30, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            padding: 10px;
+            gap: 10px;
+            background: rgba(10, 17, 30, 0.65);
+            border: 1px solid rgba(200, 170, 110, 0.15);
+            border-radius: 12px;
+            padding: 12px 10px;
         }
 
         .rune-slot-row {
@@ -1684,20 +1724,21 @@ INDEX_HTML = """<!DOCTYPE html>
             height: 46px;
             border-radius: 50%;
             background: #0d1728;
-            border: 1.5px solid var(--card-border);
+            border: 1.5px solid rgba(200, 170, 110, 0.25);
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
             position: relative;
             transition: all var(--transition-fast);
-            padding: 3px;
+            padding: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
         }
 
         .rune-item-btn.keystone {
             width: 54px;
             height: 54px;
-            border-width: 2px;
+            border: 2px solid rgba(200, 170, 110, 0.45);
         }
 
         .rune-item-btn:active {
@@ -1705,9 +1746,9 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .rune-item-btn.selected {
-            border-color: var(--gold-1);
-            box-shadow: 0 0 12px rgba(200, 170, 110, 0.5);
-            background: rgba(200, 170, 110, 0.18);
+            border-color: #f0e6d2;
+            box-shadow: 0 0 16px rgba(200, 170, 110, 0.65);
+            background: radial-gradient(circle, rgba(200, 170, 110, 0.28) 0%, #0d1728 100%);
         }
 
         .rune-item-img {
@@ -4026,7 +4067,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 btn.className = 'tree-btn' + (isSelected ? ' selected' : '');
                 btn.style.setProperty('--tree-color', tree.color || '#c8aa6e');
                 btn.innerHTML = `
-                    <img class="tree-btn-icon" src="${tree.icon}" alt="${tree.name}">
+                    <img class="tree-btn-icon" src="${tree.icon}" onerror="this.src='https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/7201_precision.png'" alt="${tree.name}">
                     <span class="tree-btn-name">${tree.name}</span>
                 `;
                 btn.addEventListener('click', () => {
@@ -4062,7 +4103,7 @@ INDEX_HTML = """<!DOCTYPE html>
                     const isSelected = (customRuneState.primaryRunes[slotIdx] === rune.id);
                     btn.className = 'rune-item-btn' + (isKeystone ? ' keystone' : '') + (isSelected ? ' selected' : '');
                     btn.title = `${rune.name} — ${rune.desc || ''}`;
-                    btn.innerHTML = `<img class="rune-item-img" src="${rune.icon}" alt="${rune.name}">`;
+                    btn.innerHTML = `<img class="rune-item-img" src="${rune.icon}" onerror="this.src='https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsadaptiveforceicon.png'" alt="${rune.name}">`;
                     btn.addEventListener('click', () => {
                         customRuneState.primaryRunes[slotIdx] = rune.id;
                         renderPrimaryRunes();
@@ -4084,7 +4125,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 btn.className = 'tree-btn' + (isPrimary ? ' disabled' : '') + (isSelected ? ' selected' : '');
                 btn.style.setProperty('--tree-color', tree.color || '#c8aa6e');
                 btn.innerHTML = `
-                    <img class="tree-btn-icon" src="${tree.icon}" alt="${tree.name}">
+                    <img class="tree-btn-icon" src="${tree.icon}" onerror="this.src='https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/7201_precision.png'" alt="${tree.name}">
                     <span class="tree-btn-name">${tree.name}</span>
                 `;
                 if (!isPrimary) {
@@ -4126,7 +4167,7 @@ INDEX_HTML = """<!DOCTYPE html>
                     const isSelected = customRuneState.secondaryRunes.includes(rune.id);
                     btn.className = 'rune-item-btn' + (isSelected ? ' selected' : '');
                     btn.title = `${rune.name} — ${rune.desc || ''}`;
-                    btn.innerHTML = `<img class="rune-item-img" src="${rune.icon}" alt="${rune.name}">`;
+                    btn.innerHTML = `<img class="rune-item-img" src="${rune.icon}" onerror="this.src='https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsadaptiveforceicon.png'" alt="${rune.name}">`;
 
                     btn.addEventListener('click', () => {
                         handleSecondaryRuneClick(rune.id, rowIdx, minorSlots);
@@ -6141,36 +6182,31 @@ class LaneSwapActionRequest(BaseModel):
 
 
 DEFAULT_CHAMPION_CATALOG: list[ChampionSummary] = [
-    ChampionSummary(id=1, name="Annie", roles=["mage"]),
-    ChampionSummary(id=2, name="Olaf", roles=["fighter"]),
-    ChampionSummary(id=3, name="Galio", roles=["tank", "mage"]),
-    ChampionSummary(id=4, name="Twisted Fate", roles=["mage"]),
-    ChampionSummary(id=5, name="Xin Zhao", roles=["fighter"]),
-    ChampionSummary(id=6, name="Urgot", roles=["fighter", "tank"]),
-    ChampionSummary(id=7, name="LeBlanc", roles=["assassin", "mage"]),
-    ChampionSummary(id=8, name="Vladimir", roles=["mage"]),
-    ChampionSummary(id=9, name="Fiddlesticks", roles=["mage"]),
-    ChampionSummary(id=10, name="Kayle", roles=["fighter", "mage"]),
-    ChampionSummary(id=11, name="Master Yi", roles=["assassin"]),
-    ChampionSummary(id=12, name="Alistar", roles=["tank", "support"]),
-    ChampionSummary(id=13, name="Ryze", roles=["mage"]),
-    ChampionSummary(id=14, name="Sion", roles=["tank", "fighter"]),
-    ChampionSummary(id=15, name="Sivir", roles=["marksman"]),
-    ChampionSummary(id=16, name="Soraka", roles=["support", "mage"]),
-    ChampionSummary(id=17, name="Teemo", roles=["marksman", "mage"]),
-    ChampionSummary(id=18, name="Tristana", roles=["marksman"]),
-    ChampionSummary(id=19, name="Warwick", roles=["fighter", "tank"]),
-    ChampionSummary(id=20, name="Nunu & Willump", roles=["tank", "fighter"]),
-    ChampionSummary(id=21, name="Miss Fortune", roles=["marksman"]),
-    ChampionSummary(id=22, name="Ashe", roles=["marksman", "support"]),
-    ChampionSummary(id=64, name="Lee Sin", roles=["fighter"]),
+    ChampionSummary(id=64, name="Lee Sin", roles=["fighter", "assassin"]),
     ChampionSummary(id=84, name="Akali", roles=["assassin"]),
     ChampionSummary(id=103, name="Ahri", roles=["mage", "assassin"]),
+    ChampionSummary(id=145, name="Kai'Sa", roles=["marksman", "assassin"]),
     ChampionSummary(id=157, name="Yasuo", roles=["fighter", "assassin"]),
+    ChampionSummary(id=221, name="Zeri", roles=["marksman"]),
     ChampionSummary(id=222, name="Jinx", roles=["marksman"]),
+    ChampionSummary(id=234, name="Viego", roles=["fighter", "assassin"]),
     ChampionSummary(id=236, name="Lucian", roles=["marksman"]),
+    ChampionSummary(id=238, name="Zed", roles=["assassin"]),
+    ChampionSummary(id=266, name="Aatrox", roles=["fighter", "tank"]),
     ChampionSummary(id=268, name="Azir", roles=["mage"]),
+    ChampionSummary(id=360, name="Samira", roles=["marksman", "assassin"]),
     ChampionSummary(id=412, name="Thresh", roles=["support", "tank"]),
+    ChampionSummary(id=517, name="Sylas", roles=["mage", "assassin"]),
+    ChampionSummary(id=523, name="Aphelios", roles=["marksman"]),
+    ChampionSummary(id=555, name="Pyke", roles=["support", "assassin"]),
+    ChampionSummary(id=711, name="Vex", roles=["mage"]),
+    ChampionSummary(id=777, name="Yone", roles=["fighter", "assassin"]),
+    ChampionSummary(id=799, name="Ambessa", roles=["fighter", "assassin"]),
+    ChampionSummary(id=875, name="Sett", roles=["fighter", "tank"]),
+    ChampionSummary(id=887, name="Gwen", roles=["fighter", "mage"]),
+    ChampionSummary(id=897, name="K'Sante", roles=["tank", "fighter"]),
+    ChampionSummary(id=901, name="Smolder", roles=["marksman", "mage"]),
+    ChampionSummary(id=910, name="Hwei", roles=["mage"]),
 ]
 
 

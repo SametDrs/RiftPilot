@@ -41,7 +41,7 @@ from unittest.mock import patch
 import pytest
 from starlette.testclient import TestClient
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QPushButton
 
 from riftpilot.adapters.mock_lcu import MockLcuAdapter
 from riftpilot.adapters.web_hub import INDEX_HTML, create_app
@@ -418,78 +418,32 @@ class TestWebHubWebSocketModeLaneSync:
 
 
 class TestDesktopUiModeLaneSelection:
-    """Desktop Companion Dashboard mode & lane selection UI interactions."""
+    """Desktop Companion Dashboard confirms removal of mode & lane controls in favor of mobile hub."""
 
-    def test_desktop_ui_mode_selector_items(self, desktop_window: MainWindow) -> None:
-        combo = desktop_window.mode_combo
-        assert combo is not None
-        assert combo.count() == 5
+    def test_desktop_ui_mode_selector_removed(self, desktop_window: MainWindow) -> None:
+        assert not hasattr(desktop_window, "mode_combo"), "mode_combo must be removed from desktop companion"
 
-        expected_modes = [420, 440, 400, 430, 450]
-        actual_modes = [combo.itemData(i) for i in range(combo.count())]
-        assert actual_modes == expected_modes
+    def test_desktop_ui_lane_container_removed(self, desktop_window: MainWindow) -> None:
+        assert not hasattr(desktop_window, "lane_container"), "lane_container must be removed from desktop companion"
 
-    def test_desktop_ui_draft_mode_shows_lane_selection(
-        self, desktop_window: MainWindow
-    ) -> None:
-        desktop_window.set_selected_mode(420)
-        assert desktop_window.selected_queue_id == 420
-        assert desktop_window.lane_container.isHidden() is False
-        assert desktop_window.lane_disabled_notice.isHidden() is True
-        assert len(desktop_window.lane_buttons) == 6
+    def test_desktop_ui_lane_buttons_removed(self, desktop_window: MainWindow) -> None:
+        assert not hasattr(desktop_window, "lane_buttons") or not desktop_window.lane_buttons
 
-    def test_desktop_ui_lane_button_click_updates_selection(
-        self, desktop_window: MainWindow
-    ) -> None:
-        desktop_window.set_selected_mode(420)
-        top_btn = desktop_window.lane_buttons.get("TOP")
-        assert top_btn is not None
+    def test_desktop_ui_compact_window_size(self, desktop_window: MainWindow) -> None:
+        assert desktop_window.width() == 500
+        assert desktop_window.height() == 780
 
-        top_btn.click()
-        assert desktop_window.selected_lane == "TOP"
-        assert top_btn.property("active") == "true"
-
-    def test_desktop_ui_switching_to_aram_disables_lanes_and_resets(
-        self, desktop_window: MainWindow
-    ) -> None:
-        desktop_window.set_selected_mode(420)
-        desktop_window.select_lane("MIDDLE")
-        assert desktop_window.selected_lane == "MIDDLE"
-
-        # Switch to ARAM (450)
-        desktop_window.set_selected_mode(450)
-        assert desktop_window.selected_queue_id == 450
-        assert desktop_window.selected_lane is None
-        assert desktop_window.lane_container.isHidden() is True
-        assert desktop_window.lane_disabled_notice.isHidden() is False
-
-    def test_desktop_ui_switching_to_blind_pick_disables_lanes_and_resets(
-        self, desktop_window: MainWindow
-    ) -> None:
-        desktop_window.set_selected_mode(440)
-        desktop_window.select_lane("JUNGLE")
-        assert desktop_window.selected_lane == "JUNGLE"
-
-        # Switch to Blind Pick (430)
-        desktop_window.set_selected_mode(430)
-        assert desktop_window.selected_queue_id == 430
-        assert desktop_window.selected_lane is None
-        assert desktop_window.lane_container.isHidden() is True
-        assert desktop_window.lane_disabled_notice.isHidden() is False
-
-    def test_desktop_ui_start_matchmaking_invokes_adapter(
-        self, desktop_window: MainWindow
-    ) -> None:
-        desktop_window.set_selected_mode(420)
-        desktop_window.select_lane("BOTTOM")
-
-        with patch.object(desktop_window, "_run_async") as mock_run:
-            desktop_window.start_matchmaking_action()
-            assert mock_run.called is True
-            if mock_run.call_args and mock_run.call_args[0]:
-                coro = mock_run.call_args[0][0]
-                if hasattr(coro, "close"):
-                    coro.close()
+    def test_desktop_ui_revoke_button_is_compact(self, desktop_window: MainWindow) -> None:
+        desktop_window.session_manager.create_session("iPhone Test", "dev-test")
+        desktop_window.update_device_list()
+        assert desktop_window.device_list.count() == 1
+        item = desktop_window.device_list.item(0)
+        row_widget = desktop_window.device_list.itemWidget(item)
+        assert row_widget is not None
+        revoke_btn = row_widget.findChild(QPushButton, "revokeBtn")
+        assert revoke_btn is not None
+        assert revoke_btn.text() == "✕ Bağlantıyı Kes"
+        assert revoke_btn.maximumWidth() <= 140
 
 
 # ==============================================================================

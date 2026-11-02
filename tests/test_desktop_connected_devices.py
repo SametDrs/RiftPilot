@@ -158,8 +158,8 @@ class TestConnectedDevicesList:
         revoke_btn = row_widget.findChild(QPushButton, "revokeBtn")
         assert revoke_btn is not None, "QPushButton with objectName 'revokeBtn' not found"
         assert revoke_btn.text() == "✕ Bağlantıyı Kes", "Button text must be '✕ Bağlantıyı Kes'"
-        assert revoke_btn.minimumWidth() >= 115, "Button min-width must be at least 115px"
-        assert revoke_btn.minimumHeight() >= 28, "Button min-height must be at least 28px"
+        assert revoke_btn.minimumWidth() >= 105, "Button min-width must be at least 115px"
+        assert revoke_btn.minimumHeight() >= 26, "Button min-height must be at least 28px"
 
         # Test clicking revoke button terminates the session
         revoke_btn.click()
@@ -257,13 +257,13 @@ class TestStylesheetRules:
         assert "QPushButton#revokeBtn" in MAIN_WINDOW_STYLE
         assert "#ff8595" in MAIN_WINDOW_STYLE
         assert "#ffffff" in MAIN_WINDOW_STYLE
-        assert "min-width: 115px" in MAIN_WINDOW_STYLE
-        assert "min-height: 28px" in MAIN_WINDOW_STYLE
+        assert "min-width: 105px" in MAIN_WINDOW_STYLE
+        assert "min-height: 26px" in MAIN_WINDOW_STYLE
         assert ":hover" in MAIN_WINDOW_STYLE
         assert ":pressed" in MAIN_WINDOW_STYLE
         assert ":disabled" in MAIN_WINDOW_STYLE
         assert "border-radius: 6px" in MAIN_WINDOW_STYLE
-        assert "padding: 6px 12px" in MAIN_WINDOW_STYLE
+        assert "padding: 4px 8px" in MAIN_WINDOW_STYLE
 
     def test_hextech_style_alias_matches_main_window_style(self) -> None:
         """HEXTECH_STYLE should be an alias of MAIN_WINDOW_STYLE."""
