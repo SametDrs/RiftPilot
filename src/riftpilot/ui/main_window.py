@@ -18,12 +18,13 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QEasingCurve, QObject, QPropertyAnimation, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
+    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -76,16 +77,16 @@ QTabBar::tab {
     color: #a09b8c;
     font-size: 13px;
     font-weight: 700;
-    padding: 10px 20px;
+    padding: 10px 10px;
     margin-right: 4px;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
     border: 1px solid rgba(200, 170, 110, 0.15);
     border-bottom: none;
-    min-width: 100px;
+    min-width: 90px;
 }
 QTabBar::tab:selected {
-    background: linear-gradient(180deg, #16243d 0%, #0b111c 100%);
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a2b49, stop:1 #0b111c);
     color: #f0e6d2;
     border-color: #c8aa6e;
     border-bottom: 2px solid #c8aa6e;
@@ -229,6 +230,47 @@ QListWidget::item {
 QListWidget::item:hover {
     border-color: rgba(200, 170, 110, 0.4);
 }
+
+/* Pairing hero */
+QFrame#qrHero {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #141e34, stop:1 #0a101c);
+    border: 1px solid rgba(200, 170, 110, 0.55);
+    border-radius: 14px;
+}
+QFrame#qrFrame {
+    background-color: #ffffff;
+    border: 3px solid #c8aa6e;
+    border-radius: 14px;
+    padding: 6px;
+}
+QLabel#stepNum {
+    background-color: rgba(200, 170, 110, 0.15);
+    color: #c8aa6e;
+    border: 1px solid #c8aa6e;
+    border-radius: 11px;
+    min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px;
+    font-size: 11px; font-weight: 800;
+}
+QLabel#stepText { color: #f0e6d2; font-size: 12px; font-weight: 700; }
+QLabel#stepArrow { color: rgba(200, 170, 110, 0.5); font-size: 14px; }
+QLabel#pillOk, QLabel#pillWait, QLabel#pillOff {
+    border-radius: 12px; padding: 4px 12px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+}
+QLabel#pillOk { background-color: rgba(0, 255, 136, 0.12); color: #00ff88; border: 1px solid rgba(0, 255, 136, 0.4); }
+QLabel#pillWait { background-color: rgba(255, 184, 0, 0.12); color: #ffb800; border: 1px solid rgba(255, 184, 0, 0.4); }
+QLabel#pillOff { background-color: rgba(160, 155, 140, 0.12); color: #a09b8c; border: 1px solid rgba(160, 155, 140, 0.3); }
+QPushButton#copyBtn {
+    background-color: rgba(10, 200, 185, 0.12);
+    color: #0ac8b9;
+    border: 1px solid rgba(10, 200, 185, 0.45);
+    border-radius: 8px; padding: 10px 14px; font-size: 12px; font-weight: 700;
+}
+QPushButton#copyBtn:hover { background-color: rgba(10, 200, 185, 0.28); color: #f0e6d2; border-color: #0ac8b9; }
+QPushButton#copyBtn:pressed { background-color: rgba(10, 200, 185, 0.4); }
+QLabel#urlText {
+    color: #0ac8b9; font-size: 12px; font-weight: 600;
+    font-family: "Cascadia Code", "Consolas", monospace;
+}
 """
 HEXTECH_STYLE = MAIN_WINDOW_STYLE
 
@@ -344,14 +386,19 @@ class MainWindow(QMainWindow):
         title_box.addWidget(subtitle_label)
 
         status_badge = QLabel("● LAN HUB AKTİF", self)
-        status_badge.setObjectName("statusBadge")
+        status_badge.setObjectName("pillOk")
+        self.phone_pill = QLabel("○ TELEFON YOK", self)
+        self.phone_pill.setObjectName("pillOff")
         header_layout.addLayout(title_box)
         header_layout.addStretch()
+        header_layout.addWidget(self.phone_pill)
+        header_layout.addSpacing(6)
         header_layout.addWidget(status_badge)
         main_layout.addLayout(header_layout)
 
         # 2. Modern Tabbed Layout
         self.tabs = QTabWidget(self)
+        self.tabs.setUsesScrollButtons(False)
 
         # ---- Tab 1: Dashboard (Genel Bakış) ----
         dashboard_tab = QWidget()
@@ -373,8 +420,8 @@ class MainWindow(QMainWindow):
         lcu_hero_layout.addLayout(lcu_title_row)
 
         self.lcu_status_label = QLabel("🔴 LoL İstemcisi: İstemci Bekleniyor...", self)
-        self.lcu_status_label.setObjectName("heroValue")
-        lcu_hero_layout.addWidget(self.lcu_status_label)
+        self.lcu_status_label.setObjectName("pillWait")
+        lcu_hero_layout.addWidget(self.lcu_status_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.gameflow_label = QLabel("🎮 Oyun Durumu: -", self)
         self.gameflow_label.setObjectName("subtitle")
@@ -430,17 +477,35 @@ class MainWindow(QMainWindow):
         pairing_layout.setContentsMargins(14, 14, 14, 14)
         pairing_layout.setSpacing(12)
 
-        # Modern QR Card
+        # Hero QR Card
         qr_card = QFrame(self)
-        qr_card.setObjectName("card")
+        qr_card.setObjectName("qrHero")
         qr_layout = QVBoxLayout(qr_card)
-        qr_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        qr_layout.setSpacing(10)
+        qr_layout.setContentsMargins(14, 10, 14, 10)
+        qr_layout.setSpacing(7)
 
-        qr_title = QLabel("TEK KULLANIMLIK QR EŞLEŞTİRME", self)
+        qr_title = QLabel("TELEFONUNU EŞLEŞTİR", self)
         qr_title.setObjectName("sectionTitle")
         qr_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         qr_layout.addWidget(qr_title)
+
+        steps_row = QHBoxLayout()
+        steps_row.setSpacing(4)
+        steps_row.addStretch()
+        for idx, text in enumerate(("Telefonla tara", "Eşleş", "Kontrol et"), start=1):
+            if idx > 1:
+                arrow = QLabel("›", self)
+                arrow.setObjectName("stepArrow")
+                steps_row.addWidget(arrow)
+            num = QLabel(str(idx), self)
+            num.setObjectName("stepNum")
+            num.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            txt = QLabel(text, self)
+            txt.setObjectName("stepText")
+            steps_row.addWidget(num)
+            steps_row.addWidget(txt)
+        steps_row.addStretch()
+        qr_layout.addLayout(steps_row)
 
         qr_frame = QFrame(self)
         qr_frame.setObjectName("qrFrame")
@@ -450,19 +515,34 @@ class MainWindow(QMainWindow):
 
         self.qr_label = QLabel(self)
         self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.qr_label.setFixedSize(240, 240)
+        self.qr_label.setFixedSize(196, 196)
         qr_frame_layout.addWidget(self.qr_label)
-        qr_layout.addWidget(qr_frame)
+        qr_layout.addWidget(qr_frame, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        hint_label = QLabel("Telefon kamerasıyla QR kodu tarayın (Burn-on-Read OTT)", self)
+        hint_label = QLabel("Tek kullanımlık kod • 90 sn geçerli", self)
         hint_label.setObjectName("subtitle")
         hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         qr_layout.addWidget(hint_label)
 
+        self.url_label = QLabel(f"http://{self.lan_ip}:{self.port}/", self)
+        self.url_label.setObjectName("urlText")
+        self.url_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        qr_layout.addWidget(self.url_label)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
         self.refresh_button = QPushButton("🔄 QR Kodu Yenile", self)
         self.refresh_button.setObjectName("refreshBtn")
+        self.refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.refresh_button.clicked.connect(self.refresh_qr)
-        qr_layout.addWidget(self.refresh_button)
+        self.copy_button = QPushButton("📋 Bağlantıyı Kopyala", self)
+        self.copy_button.setObjectName("copyBtn")
+        self.copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.copy_button.clicked.connect(self.copy_connection_url)
+        btn_row.addWidget(self.refresh_button, stretch=1)
+        btn_row.addWidget(self.copy_button, stretch=1)
+        qr_layout.addLayout(btn_row)
         pairing_layout.addWidget(qr_card)
 
         # Connected Devices Section
@@ -475,13 +555,13 @@ class MainWindow(QMainWindow):
         devices_title.setObjectName("sectionTitle")
         devices_layout.addWidget(devices_title)
 
-        self.empty_state_label = QLabel("Henüz bağlı cihaz yok.", self)
+        self.empty_state_label = QLabel("📡 Telefon bekleniyor…\nYukarıdaki QR kodu telefonunla tara.", self)
         self.empty_state_label.setObjectName("subtitle")
         self.empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         devices_layout.addWidget(self.empty_state_label)
 
         self.device_list = QListWidget(self)
-        self.device_list.setMaximumHeight(140)
+        self.device_list.setMaximumHeight(120)
         self.device_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         devices_layout.addWidget(self.device_list)
         pairing_layout.addWidget(devices_card)
@@ -536,7 +616,39 @@ class MainWindow(QMainWindow):
         settings_layout.addStretch()
         self.tabs.addTab(settings_tab, "⚙️ Ayarlar")
 
+        self.tabs.currentChanged.connect(self._fade_in_tab)
         main_layout.addWidget(self.tabs)
+
+    def _fade_in(self, widget: QWidget, duration: int = 280) -> None:
+        """Subtle fade-in for a widget (animation kept referenced to avoid GC)."""
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"opacity", widget)
+        anim.setDuration(duration)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.finished.connect(lambda: widget.setGraphicsEffect(None))
+        self._anim = anim
+        anim.start()
+
+    def _fade_in_tab(self, index: int) -> None:
+        page = self.tabs.widget(index)
+        if page is not None:
+            self._fade_in(page)
+
+    def copy_connection_url(self) -> None:
+        """Copy the LAN hub URL to the clipboard with brief visual feedback."""
+        QGuiApplication.clipboard().setText(f"http://{self.lan_ip}:{self.port}/")
+        self.copy_button.setText("✓ Kopyalandı")
+        QTimer.singleShot(1500, lambda: self.copy_button.setText("📋 Bağlantıyı Kopyala"))
+
+    def _set_pill(self, label: QLabel, object_name: str) -> None:
+        if label.objectName() == object_name:
+            return
+        label.setObjectName(object_name)
+        label.style().unpolish(label)
+        label.style().polish(label)
 
     def _on_poll_tick(self) -> None:
         """Periodic sync for active device sessions, connection status, and queue timer."""
@@ -565,7 +677,7 @@ class MainWindow(QMainWindow):
         """Generate a new OTT token and update the displayed QR pixmap."""
         ott = self.ott_manager.generate_ott(ttl_seconds=90.0)
         target_url = f"http://{self.lan_ip}:{self.port}/?ott={ott.token}"
-        pixmap = generate_qr_pixmap(target_url, size=240)
+        pixmap = generate_qr_pixmap(target_url, size=196)
         self.qr_label.setPixmap(pixmap)
         logger.debug(
             "QR kodu güncellendi: http://%s:%s/?ott=%s...",
@@ -581,6 +693,13 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "active_count_label"):
             self.active_count_label.setText(f"📱 Bağlı Cihaz: {len(active_sessions)}")
+        if hasattr(self, "phone_pill"):
+            if active_sessions:
+                self.phone_pill.setText(f"● TELEFON BAĞLI ({len(active_sessions)})")
+                self._set_pill(self.phone_pill, "pillOk")
+            else:
+                self.phone_pill.setText("○ TELEFON YOK")
+                self._set_pill(self.phone_pill, "pillOff")
 
         if not active_sessions:
             self.empty_state_label.show()
@@ -795,9 +914,10 @@ class MainWindow(QMainWindow):
             if self.lcu_adapter and getattr(self.lcu_adapter, "credentials", None):
                 port_info = f" (Port: {self.lcu_adapter.credentials.port})"
             self.lcu_status_label.setText(f"🟢 LoL İstemcisi: LCU Bağlandı{port_info}")
+            self._set_pill(self.lcu_status_label, "pillOk")
         else:
             self.lcu_status_label.setText("🔴 LoL İstemcisi: İstemci Bekleniyor...")
-
+            self._set_pill(self.lcu_status_label, "pillWait")
 
     def _run_async(self, coro: Any) -> None:
         """Run an async coroutine safely in background thread."""
