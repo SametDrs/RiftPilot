@@ -26,6 +26,41 @@ class ChampSelectActionType(str, Enum):
     VOTE = "vote"
 
 
+class ChampionRole(str, Enum):
+    """Champion positions and archetype roles."""
+
+    TOP = "top"
+    JUNGLE = "jungle"
+    MID = "mid"
+    BOTTOM = "bottom"
+    SUPPORT = "support"
+    ASSASSIN = "assassin"
+    MAGE = "mage"
+    TANK = "tank"
+    MARKSMAN = "marksman"
+    FIGHTER = "fighter"
+
+
+ROLE_ALIASES: dict[str, set[str]] = {
+    "top": {"top"},
+    "jungle": {"jungle", "jug"},
+    "jug": {"jungle", "jug"},
+    "mid": {"mid", "middle"},
+    "middle": {"mid", "middle"},
+    "bottom": {"bottom", "bot", "marksman", "adc"},
+    "bot": {"bottom", "bot", "marksman", "adc"},
+    "marksman": {"bottom", "bot", "marksman", "adc"},
+    "adc": {"bottom", "bot", "marksman", "adc"},
+    "support": {"support", "utility", "supp"},
+    "utility": {"support", "utility", "supp"},
+    "supp": {"support", "utility", "supp"},
+    "assassin": {"assassin"},
+    "mage": {"mage"},
+    "tank": {"tank"},
+    "fighter": {"fighter"},
+}
+
+
 class ChampSelectPhase(str, Enum):
     """Champion select phase identifier."""
 
@@ -212,16 +247,28 @@ class ChampionSummary:
     roles: list[str] = field(default_factory=list)
     square_portrait_path: str = ""
     disabled: bool = False
+    mastery_level: int = 0
+    free_to_play: bool = False
+    owned: bool = True
 
     @classmethod
     def from_lcu_dict(cls, data: dict[str, Any]) -> ChampionSummary:
         """Parse from raw LCU champion summary dictionary."""
+        owned = True
+        if "owned" in data:
+            owned = bool(data["owned"])
+        elif isinstance(data.get("ownership"), dict):
+            owned = bool(data["ownership"].get("owned", True))
+
         return cls(
             id=int(data.get("id", 0)),
             name=str(data.get("name", "")),
             roles=[str(r).lower() for r in data.get("roles", [])],
             square_portrait_path=str(data.get("squarePortraitPath", "")),
             disabled=bool(data.get("disabled", False)),
+            mastery_level=int(data.get("masteryLevel", data.get("mastery_level", 0)) or 0),
+            free_to_play=bool(data.get("freeToPlay", data.get("free_to_play", False))),
+            owned=owned,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -233,7 +280,114 @@ class ChampionSummary:
             "squarePortraitPath": self.square_portrait_path,
             "square_portrait_path": self.square_portrait_path,
             "disabled": self.disabled,
+            "masteryLevel": self.mastery_level,
+            "mastery_level": self.mastery_level,
+            "freeToPlay": self.free_to_play,
+            "free_to_play": self.free_to_play,
+            "owned": self.owned,
         }
+
+
+def filter_champion_pool(
+    champions: list[ChampionSummary],
+    query: str = "",
+    role: str | ChampionRole = "",
+    only_owned: bool = False,
+    exclude_disabled: bool = True,
+) -> list[ChampionSummary]:
+    """Filter a champion pool by search query, role, ownership, and disabled status.
+
+    Args:
+        champions: List of ChampionSummary instances to filter.
+        query: Case-insensitive search string matched against champion name.
+        role: Position or archetype filter (e.g. 'mage', 'tank', 'mid'). Case-insensitive.
+        only_owned: If True, exclude champions where owned is False.
+        exclude_disabled: If True (default), exclude champions where disabled is True.
+
+    Returns:
+        Filtered list of ChampionSummary instances preserving original order.
+    """
+    query_str = query.strip().lower()
+    query_normalized = query_str.replace("'", "").replace(" ", "").replace(".", "").replace("-", "")
+
+    role_str = ""
+    if isinstance(role, ChampionRole):
+        role_str = role.value.lower()
+    elif isinstance(role, str):
+        role_str = role.strip().lower()
+
+    target_roles: set[str] = set()
+    if role_str and role_str != "all":
+        target_roles = ROLE_ALIASES.get(role_str, {role_str})
+
+    filtered: list[ChampionSummary] = []
+    for champ in champions:
+        # 1. Disabled status check
+        if exclude_disabled and champ.disabled:
+            continue
+
+        # 2. Ownership check
+        if only_owned and not champ.owned:
+            continue
+
+        # 3. Query string match
+        if query_str:
+            champ_name_lower = champ.name.lower()
+            champ_name_norm = champ_name_lower.replace("'", "").replace(" ", "").replace(".", "").replace("-", "")
+            if query_str not in champ_name_lower and query_normalized not in champ_name_norm:
+                continue
+
+        # 4. Role filter match
+        if target_roles:
+            champ_roles = {r.strip().lower() for r in champ.roles}
+            expanded_champ_roles: set[str] = set()
+            for r in champ_roles:
+                expanded_champ_roles.update(ROLE_ALIASES.get(r, {r}))
+            if not (target_roles & expanded_champ_roles):
+                continue
+
+        filtered.append(champ)
+
+    return filtered
+
+
+def validate_champion_pool_selection(
+    champion_id: int,
+    champions: list[ChampionSummary],
+    disabled_ids: set[int] | None = None,
+    banned_ids: set[int] | None = None,
+    picked_ids: set[int] | None = None,
+) -> tuple[bool, str]:
+    """Validate whether a champion can be selected from the champion pool.
+
+    Evaluates:
+    - Positive champion_id (> 0).
+    - Presence in the available champions pool.
+    - Champion disabled state (via ChampionSummary.disabled or disabled_ids).
+    - Champion ban state (via banned_ids).
+    - Champion pick state (via picked_ids).
+
+    Returns:
+        tuple[bool, str]: (is_valid, reason) where reason is empty on success,
+        or contains a descriptive explanation on failure.
+    """
+    if champion_id <= 0:
+        return False, "Geçersiz şampiyon kimliği (Invalid champion ID)."
+
+    champ = next((c for c in champions if c.id == champion_id), None)
+    if champ is None:
+        return False, "Şampiyon havuzda bulunamadı (Champion not found in pool)."
+
+    if champ.disabled or (disabled_ids is not None and champion_id in disabled_ids):
+        return False, "Şampiyon devre dışı bırakılmış (Champion is disabled)."
+
+    if banned_ids is not None and champion_id in banned_ids:
+        return False, "Şampiyon yasaklanmış (Champion is banned)."
+
+    if picked_ids is not None and champion_id in picked_ids:
+        return False, "Şampiyon zaten seçilmiş (Champion already picked)."
+
+    return True, ""
 
 
 @dataclass
@@ -440,5 +594,9 @@ __all__ = [
     "ChampSelectPlayer",
     "ChampSelectSession",
     "ChampSelectTimer",
+    "ChampionRole",
     "ChampionSummary",
+    "ROLE_ALIASES",
+    "filter_champion_pool",
+    "validate_champion_pool_selection",
 ]
