@@ -25,7 +25,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Set
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -246,6 +255,10 @@ async def _perform_decline_ready_check(adapter: Any) -> bool:
     return updated
 
 
+#: WebSocket close code for missing/invalid/revoked sessions (ADR-0004).
+WS_CLOSE_UNAUTHORIZED: int = 4401
+
+
 def create_app(
     ott_manager: OTTManager,
     session_manager: SessionManager,
@@ -254,10 +267,61 @@ def create_app(
     ui_bridge: Any = None,
     enable_monitor: bool = True,
     poll_interval: float = 1.0,
+    server_port: int | None = None,
+    debug: bool = False,
 ) -> FastAPI:
-    """Factory creating and configuring the FastAPI Web Hub application."""
+    """Factory creating and configuring the FastAPI Web Hub application.
+
+    Args:
+        server_port: Local port the hub is served on; used by ``/api/wan/toggle``
+            (client-supplied ports are ignored). Falls back to the port the
+            request was received on.
+        debug: Expose ``/docs``, ``/redoc`` and ``/openapi.json`` when True.
+    """
     active_connections: Set[WebSocket] = set()
+    # Session token + owning event loop per live WebSocket (ADR-0004 revocation).
+    connection_sessions: dict[WebSocket, tuple[str, asyncio.AbstractEventLoop]] = {}
     in_flight_action_lock = asyncio.Lock()
+
+    def _discard_connection(ws: WebSocket) -> None:
+        active_connections.discard(ws)
+        connection_sessions.pop(ws, None)
+
+    async def _close_unauthorized(ws: WebSocket, reason: str = "Session revoked or invalid") -> None:
+        """Notify the client and close its socket with 4401 (ADR-0004)."""
+        _discard_connection(ws)
+        try:
+            await ws.send_json({"type": "REVOKED", "error": reason})
+        except Exception:
+            pass
+        try:
+            await ws.close(code=WS_CLOSE_UNAUTHORIZED)
+        except Exception:
+            pass
+
+    def _on_session_revoked(revoked: DeviceSession) -> None:
+        """Revocation listener; may run on the Qt thread, so hop onto each socket's loop."""
+        for ws, (ws_token, loop) in list(connection_sessions.items()):
+            if ws_token != revoked.session_token or loop.is_closed():
+                continue
+            try:
+                asyncio.run_coroutine_threadsafe(_close_unauthorized(ws), loop)
+            except RuntimeError as exc:
+                logger.debug("Could not schedule WS revocation close: %s", exc)
+
+    session_manager.add_revocation_listener(_on_session_revoked)
+
+    async def _broadcast(payload: dict[str, Any]) -> None:
+        """Send payload to every socket whose session is still valid; close the rest."""
+        for ws in list(active_connections):
+            entry = connection_sessions.get(ws)
+            if entry is None or session_manager.get_session(entry[0]) is None:
+                await _close_unauthorized(ws)
+                continue
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                _discard_connection(ws)
 
     async def _build_enriched_champ_select_payload(
         session: ChampSelectSession | None,
@@ -309,16 +373,7 @@ def create_app(
             except Exception:
                 pass
 
-        dead_connections: list[WebSocket] = []
-
-        for ws in list(active_connections):
-            try:
-                await ws.send_json(payload)
-            except Exception:
-                dead_connections.append(ws)
-
-        for ws in dead_connections:
-            active_connections.discard(ws)
+        await _broadcast(payload)
 
     async def broadcast_champ_select(session: ChampSelectSession | None) -> None:
         """Broadcast live centralized champ select state to all active WebSocket clients."""
@@ -329,16 +384,7 @@ def create_app(
             "modeContext": enriched["modeContext"],
             "eligibility": enriched["eligibility"],
         }
-        dead_connections: list[WebSocket] = []
-
-        for ws in list(active_connections):
-            try:
-                await ws.send_json(payload)
-            except Exception:
-                dead_connections.append(ws)
-
-        for ws in dead_connections:
-            active_connections.discard(ws)
+        await _broadcast(payload)
 
     async def on_phase_change(phase: GameflowPhase | str) -> None:
         """Subscriber callback invoked upon LCU gameflow phase transition."""
@@ -388,14 +434,7 @@ def create_app(
                             "lcu_connected": is_conn,
                             "phase": phase_str if (is_conn and 'phase_str' in locals()) else "None",
                         }
-                        dead_ws = []
-                        for ws in list(active_connections):
-                            try:
-                                await ws.send_json(status_payload)
-                            except Exception:
-                                dead_ws.append(ws)
-                        for ws in dead_ws:
-                            active_connections.discard(ws)
+                        await _broadcast(status_payload)
 
                     if status == LcuConnectionStatus.CONNECTED:
                         # Ensure stream is running
@@ -428,14 +467,7 @@ def create_app(
                                         "type": "MATCHMAKING_SEARCH_UPDATE",
                                         "search": search.model_dump(),
                                     }
-                                    dead_ws = []
-                                    for ws in list(active_connections):
-                                        try:
-                                            await ws.send_json(search_payload)
-                                        except Exception:
-                                            dead_ws.append(ws)
-                                    for ws in dead_ws:
-                                        active_connections.discard(ws)
+                                    await _broadcast(search_payload)
                             except Exception as exc:
                                 logger.debug("Matchmaking search monitor query error: %s", exc)
 
@@ -486,6 +518,9 @@ def create_app(
         description="Local LAN mobile companion and pairing hub for RiftPilot",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url="/docs" if debug else None,
+        redoc_url="/redoc" if debug else None,
+        openapi_url="/openapi.json" if debug else None,
     )
 
     # Store references on app.state
@@ -494,6 +529,37 @@ def create_app(
     app.state.lcu_adapter = lcu_adapter
     app.state.ui_bridge = ui_bridge
     app.state.active_connections = active_connections
+    app.state.connection_sessions = connection_sessions
+    app.state.server_port = server_port
+
+    async def require_session(
+        request: Request,
+        authorization: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ) -> DeviceSession:
+        """Zero-Trust REST guard: require a valid session token (ADR-0004).
+
+        Accepts ``Authorization: Bearer <token>`` or legacy ``X-Session-Token``.
+        """
+        token: str | None = None
+        if authorization:
+            scheme, _, credentials = authorization.partition(" ")
+            if scheme.lower() == "bearer" and credentials.strip():
+                token = credentials.strip()
+        if token is None and x_session_token:
+            token = x_session_token.strip()
+        session = session_manager.validate_session(token) if token else None
+        if session is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or missing session token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        request.state.device_session = session
+        return session
+
+    # Every /api/* route except pairing is mounted on this authenticated router.
+    api = APIRouter(dependencies=[Depends(require_session)])
     app.state.enable_monitor = enable_monitor
 
     async def _validate_and_execute_champ_select_action(
@@ -608,7 +674,7 @@ def create_app(
             "deviceName": session.device_name,
         }
 
-    @app.get("/api/lcu/status")
+    @api.get("/api/lcu/status")
     async def get_lcu_status_endpoint() -> dict[str, Any]:
         """Query active League Client connection status and gameflow phase."""
         if lcu_adapter is None:
@@ -628,7 +694,7 @@ def create_app(
             "phase": phase_str,
         }
 
-    @app.get("/api/champ-select")
+    @api.get("/api/champ-select")
     async def get_champ_select_state() -> dict[str, Any]:
         """Fetch current centralized champion select session, modeContext, and eligibility."""
         if lcu_adapter is None:
@@ -636,7 +702,7 @@ def create_app(
         session = await lcu_adapter.get_champ_select_session()
         return await _build_enriched_champ_select_payload(session)
 
-    @app.get("/api/champ-select/grid")
+    @api.get("/api/champ-select/grid")
     async def get_champ_select_grid() -> dict[str, Any]:
         """Fetch list of selectable and bannable grid champions with live ban/disabled status."""
         champions = []
@@ -656,7 +722,7 @@ def create_app(
             result.append(d)
         return {"champions": result}
 
-    @app.post("/api/champ-select/action")
+    @api.post("/api/champ-select/action")
     async def perform_champ_select_action(
         payload: ChampSelectActionRequest,
     ) -> dict[str, Any]:
@@ -684,7 +750,7 @@ def create_app(
             )
         return {"success": True, "actionId": resolved_id}
 
-    @app.get("/api/spells")
+    @api.get("/api/spells")
     async def get_summoner_spells_endpoint(
         gameMode: str | None = None,
     ) -> dict[str, Any]:
@@ -701,7 +767,7 @@ def create_app(
             "spells": [s.to_dict() for s in spells],
         }
 
-    @app.post("/api/spells")
+    @api.post("/api/spells")
     async def set_summoner_spells_endpoint(
         payload: SetSpellsRequest,
     ) -> dict[str, Any]:
@@ -719,7 +785,7 @@ def create_app(
             "spell2Id": payload.spell2Id,
         }
 
-    @app.get("/api/runes/recommended")
+    @api.get("/api/runes/recommended")
     async def get_recommended_runes_endpoint(
         championId: int = 0,
         position: str = "",
@@ -745,7 +811,7 @@ def create_app(
             "available": len(pages) > 0,
         }
 
-    @app.get("/api/runes/current")
+    @api.get("/api/runes/current")
     async def get_current_runes_endpoint() -> dict[str, Any]:
         """Fetch current active rune page from LCU."""
         if lcu_adapter is None:
@@ -753,7 +819,7 @@ def create_app(
         page = await lcu_adapter.get_current_rune_page()
         return {"page": page.to_dict() if page is not None else None}
 
-    @app.post("/api/runes/apply")
+    @api.post("/api/runes/apply")
     async def apply_runes_endpoint(
         payload: ApplyRunePageRequest,
     ) -> dict[str, Any]:
@@ -771,7 +837,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="Rün sayfası istemciye uygulanamadı.")
         return {"success": True}
 
-    @app.get("/api/runes/trees")
+    @api.get("/api/runes/trees")
     async def get_rune_trees_endpoint() -> dict[str, Any]:
         """Return the complete League of Legends rune trees catalog and stat shards."""
         trees_list = list(RUNE_DATA["trees"].values())
@@ -782,7 +848,7 @@ def create_app(
             "stat_shards": stat_shards,
         }
 
-    @app.get("/api/runes/custom")
+    @api.get("/api/runes/custom")
     async def get_custom_runes_endpoint() -> dict[str, Any]:
         """Return all user-saved custom rune pages."""
         mgr = get_custom_rune_manager()
@@ -792,7 +858,7 @@ def create_app(
             "count": len(pages),
         }
 
-    @app.post("/api/runes/custom")
+    @api.post("/api/runes/custom")
     async def create_custom_rune_endpoint(
         payload: CustomRuneCreateRequest,
     ) -> dict[str, Any]:
@@ -818,7 +884,7 @@ def create_app(
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-    @app.delete("/api/runes/custom/{page_id}")
+    @api.delete("/api/runes/custom/{page_id}")
     async def delete_custom_rune_endpoint(page_id: str) -> dict[str, Any]:
         """Delete a saved custom rune page by ID."""
         mgr = get_custom_rune_manager()
@@ -832,7 +898,7 @@ def create_app(
     # Lobby & Matchmaking Endpoints (Milestone 4)
     # =========================================================================
 
-    @app.get("/api/lobby")
+    @api.get("/api/lobby")
     async def get_lobby_endpoint() -> dict[str, Any]:
         """Retrieve party lobby state and matchmaking status."""
         if lcu_adapter is None:
@@ -844,7 +910,7 @@ def create_app(
             "search": search.model_dump() if search else None,
         }
 
-    @app.post("/api/lobby/create")
+    @api.post("/api/lobby/create")
     async def create_lobby_endpoint(payload: CreateLobbyRequest) -> dict[str, Any]:
         """Create or switch party lobby for a specific queue ID."""
         if lcu_adapter is None:
@@ -852,7 +918,7 @@ def create_app(
         success = await lcu_adapter.create_lobby(payload.queueId)
         return {"success": bool(success), "queueId": payload.queueId}
 
-    @app.post("/api/lobby/matchmaking/start")
+    @api.post("/api/lobby/matchmaking/start")
     async def start_matchmaking_endpoint(
         payload: StartMatchmakingRequest | None = None,
     ) -> dict[str, Any]:
@@ -926,7 +992,7 @@ def create_app(
 
         }
 
-    @app.post("/api/lobby/matchmaking/cancel")
+    @api.post("/api/lobby/matchmaking/cancel")
     async def cancel_matchmaking_endpoint() -> dict[str, Any]:
         """Cancel ongoing matchmaking search."""
         if lcu_adapter is None:
@@ -934,7 +1000,7 @@ def create_app(
         success = await lcu_adapter.cancel_matchmaking()
         return {"success": success}
 
-    @app.post("/api/match/accept")
+    @api.post("/api/match/accept")
     async def accept_match_endpoint(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Accept an active ready check (match found) prompt."""
         if lcu_adapter is None:
@@ -942,7 +1008,7 @@ def create_app(
         success = await _perform_accept_ready_check(lcu_adapter)
         return {"success": bool(success)}
 
-    @app.post("/api/match/decline")
+    @api.post("/api/match/decline")
     async def decline_match_endpoint(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Decline an active ready check prompt."""
         if lcu_adapter is None:
@@ -952,8 +1018,8 @@ def create_app(
 
 
 
-    @app.post("/api/lobby/preferences")
-    @app.put("/api/lobby/preferences")
+    @api.post("/api/lobby/preferences")
+    @api.put("/api/lobby/preferences")
     async def set_preferences_endpoint(payload: SetPositionPreferencesRequest) -> dict[str, Any]:
         """Set position preferences for the local lobby member."""
         if lcu_adapter is None:
@@ -977,7 +1043,7 @@ def create_app(
     # ARAM Bench & Trades Endpoints (Milestone 4)
     # =========================================================================
 
-    @app.get("/api/champ-select/bench")
+    @api.get("/api/champ-select/bench")
     async def get_bench_endpoint() -> dict[str, Any]:
         """Retrieve available champions on the ARAM bench."""
         if lcu_adapter is None:
@@ -985,7 +1051,7 @@ def create_app(
         bench = await lcu_adapter.get_bench_champions()
         return {"bench": [b.model_dump() for b in bench]}
 
-    @app.post("/api/champ-select/bench/swap")
+    @api.post("/api/champ-select/bench/swap")
     async def bench_swap_endpoint(payload: BenchSwapRequest) -> dict[str, Any]:
         """Swap champion with one on the bench."""
         if lcu_adapter is None:
@@ -993,7 +1059,7 @@ def create_app(
         success = await lcu_adapter.bench_swap(payload.championId)
         return {"success": success, "championId": payload.championId}
 
-    @app.post("/api/champ-select/reroll")
+    @api.post("/api/champ-select/reroll")
     async def reroll_endpoint() -> dict[str, Any]:
         """Reroll champion in ARAM."""
         if lcu_adapter is None:
@@ -1001,7 +1067,7 @@ def create_app(
         success = await lcu_adapter.reroll()
         return {"success": success}
 
-    @app.get("/api/champ-select/trades")
+    @api.get("/api/champ-select/trades")
     async def get_trades_endpoint() -> dict[str, Any]:
         """Retrieve current champion select trades."""
         if lcu_adapter is None:
@@ -1009,35 +1075,35 @@ def create_app(
         trades = await lcu_adapter.get_trades()
         return {"trades": [t.model_dump() for t in trades]}
 
-    @app.post("/api/champ-select/trade/request")
+    @api.post("/api/champ-select/trade/request")
     async def request_trade_endpoint(payload: TradeActionRequest) -> dict[str, Any]:
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
         success = await lcu_adapter.request_trade(payload.tradeId)
         return {"success": bool(success), "tradeId": payload.tradeId}
 
-    @app.post("/api/champ-select/trade/accept")
+    @api.post("/api/champ-select/trade/accept")
     async def accept_trade_endpoint(payload: TradeActionRequest) -> dict[str, Any]:
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
         success = await lcu_adapter.accept_trade(payload.tradeId)
         return {"success": bool(success), "tradeId": payload.tradeId}
 
-    @app.post("/api/champ-select/trade/decline")
+    @api.post("/api/champ-select/trade/decline")
     async def decline_trade_endpoint(payload: TradeActionRequest) -> dict[str, Any]:
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
         success = await lcu_adapter.decline_trade(payload.tradeId)
         return {"success": bool(success), "tradeId": payload.tradeId}
 
-    @app.post("/api/champ-select/trade/cancel")
+    @api.post("/api/champ-select/trade/cancel")
     async def cancel_trade_endpoint(payload: TradeActionRequest) -> dict[str, Any]:
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
         success = await lcu_adapter.cancel_trade(payload.tradeId)
         return {"success": bool(success), "tradeId": payload.tradeId}
 
-    @app.get("/api/champ-select/lane-swaps")
+    @api.get("/api/champ-select/lane-swaps")
     async def get_lane_swaps_endpoint() -> dict[str, Any]:
         if lcu_adapter is None:
             return {"laneSwaps": []}
@@ -1045,21 +1111,21 @@ def create_app(
         swaps = await swaps_val if inspect.isawaitable(swaps_val) else swaps_val
         return {"laneSwaps": [s.model_dump() for s in (swaps or [])]}
 
-    @app.post("/api/champ-select/lane-swap/request")
+    @api.post("/api/champ-select/lane-swap/request")
     async def request_lane_swap_endpoint(payload: LaneSwapActionRequest) -> dict[str, Any]:
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
         success = await lcu_adapter.request_lane_swap(payload.cellId)
         return {"success": bool(success), "toCellId": payload.cellId}
 
-    @app.post("/api/champ-select/lane-swap/accept")
+    @api.post("/api/champ-select/lane-swap/accept")
     async def accept_lane_swap_endpoint(payload: LaneSwapActionRequest) -> dict[str, Any]:
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
         success = await lcu_adapter.accept_lane_swap(payload.cellId)
         return {"success": bool(success), "fromCellId": payload.cellId}
 
-    @app.post("/api/champ-select/lane-swap/decline")
+    @api.post("/api/champ-select/lane-swap/decline")
     async def decline_lane_swap_endpoint(payload: LaneSwapActionRequest) -> dict[str, Any]:
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
@@ -1071,7 +1137,7 @@ def create_app(
     # Post-Game Stats & Honor Endpoints (Milestone 5)
     # =========================================================================
 
-    @app.get("/api/game/eog")
+    @api.get("/api/game/eog")
     async def get_eog_endpoint() -> dict[str, Any]:
         """Retrieve end-of-game match summary and scoreboard."""
         if lcu_adapter is None:
@@ -1079,7 +1145,7 @@ def create_app(
         stats = await lcu_adapter.get_end_of_game_stats()
         return {"stats": stats.model_dump() if stats else None}
 
-    @app.get("/api/game/honor/ballot")
+    @api.get("/api/game/honor/ballot")
     async def get_honor_ballot_endpoint() -> dict[str, Any]:
         """Retrieve eligible teammates for post-game honor voting."""
         if lcu_adapter is None:
@@ -1087,7 +1153,7 @@ def create_app(
         ballot = await lcu_adapter.get_honor_ballot()
         return {"ballot": ballot.model_dump() if ballot else None}
 
-    @app.post("/api/game/honor")
+    @api.post("/api/game/honor")
     async def honor_player_endpoint(payload: HonorPlayerRequest) -> dict[str, Any]:
         """Cast honor vote for a teammate."""
         if lcu_adapter is None:
@@ -1100,7 +1166,7 @@ def create_app(
     # WAN Remote Relay Endpoints (Milestone 6 - ADR-0003)
     # =========================================================================
 
-    @app.get("/api/wan/status")
+    @api.get("/api/wan/status")
     async def get_wan_status_endpoint() -> dict[str, Any]:
         """Retrieve status of the WAN reverse tunnel."""
         if tunnel_adapter is None:
@@ -1108,13 +1174,20 @@ def create_app(
         info = await tunnel_adapter.get_tunnel_info()
         return {"tunnel": info.model_dump(), "available": True}
 
-    @app.post("/api/wan/toggle")
-    async def toggle_wan_endpoint(enable: bool = True, port: int = 8000) -> dict[str, Any]:
-        """Start or stop the WAN reverse tunnel."""
+    @api.post("/api/wan/toggle")
+    async def toggle_wan_endpoint(request: Request, enable: bool = True) -> dict[str, Any]:
+        """Start or stop the WAN reverse tunnel.
+
+        The local port is always the server's own; any client-supplied port is ignored.
+        """
         if tunnel_adapter is None:
             raise HTTPException(status_code=503, detail="WAN tunnel adapter not configured")
         if enable:
-            info = await tunnel_adapter.start_tunnel(local_port=port)
+            local_port = getattr(app.state, "server_port", None)
+            if not local_port:
+                server_addr = request.scope.get("server")
+                local_port = server_addr[1] if server_addr and server_addr[1] else 8000
+            info = await tunnel_adapter.start_tunnel(local_port=int(local_port))
         else:
             await tunnel_adapter.stop_tunnel()
             info = await tunnel_adapter.get_tunnel_info()
@@ -1142,10 +1215,11 @@ def create_app(
                     "error": "Invalid or missing session token",
                 }
             )
-            await websocket.close(code=4001)
+            await websocket.close(code=WS_CLOSE_UNAUTHORIZED)
             return
 
         active_connections.add(websocket)
+        connection_sessions[websocket] = (session.session_token, asyncio.get_running_loop())
 
         try:
             current_phase = "None"
@@ -1185,23 +1259,23 @@ def create_app(
 
                 try:
                     data = json.loads(text)
-                    if not isinstance(data, dict):
-                        await websocket.send_text("ECHO: " + text)
-                        continue
                 except (json.JSONDecodeError, TypeError):
-                    await websocket.send_text("ECHO: " + text)
+                    data = None
+                if not isinstance(data, dict):
+                    await websocket.send_json(
+                        {
+                            "type": "ERROR",
+                            "error": "INVALID_MESSAGE",
+                            "message": "Messages must be JSON objects.",
+                        }
+                    )
                     continue
 
                 # Continuous Zero-Trust command authentication
                 cmd_token = data.get("token") or token
                 validated = session_manager.validate_session(cmd_token)
                 if validated is None or not validated.is_active:
-                    await websocket.send_json(
-                        {
-                            "type": "REVOKED",
-                            "error": "Session revoked or invalid",
-                        }
-                    )
+                    await _close_unauthorized(websocket)
                     break
 
                 cmd_type = data.get("type")
@@ -1586,8 +1660,9 @@ def create_app(
         except Exception as exc:
             logger.debug("WebSocket exception: %s", exc)
         finally:
-            active_connections.discard(websocket)
+            _discard_connection(websocket)
 
+    app.include_router(api)
     return app
 
 
@@ -1598,5 +1673,6 @@ __all__ = [
     "INDEX_HTML",
     "PairRequest",
     "SetSpellsRequest",
+    "WS_CLOSE_UNAUTHORIZED",
     "create_app",
 ]

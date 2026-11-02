@@ -88,6 +88,7 @@ def web_bundle() -> tuple[TestClient, MockLcuAdapter, str]:
     ott = ott_mgr.generate_ott()
     pair_resp = client.post("/api/pair", json={"ott": ott.token, "deviceName": "MobileTester"})
     token = pair_resp.json()["session_token"]
+    client.headers["Authorization"] = f"Bearer {token}"
     return client, lcu, token
 
 

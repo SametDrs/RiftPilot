@@ -406,8 +406,18 @@ from fastapi import HTTPException
 from riftpilot.adapters.web_hub import ApplyRunePageRequest, CustomRuneCreateRequest
 
 
+def _iter_routes(routes):
+    """Yield routes, descending into included (authenticated) routers."""
+    for route in routes:
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            yield from _iter_routes(included.routes)
+        else:
+            yield route
+
+
 def get_route_endpoint(app, path: str, method: str):
-    for route in app.routes:
+    for route in _iter_routes(app.routes):
         if getattr(route, "path", None) == path and method.upper() in getattr(route, "methods", set()):
             return route.endpoint
     raise ValueError(f"Route not found: {method} {path}")

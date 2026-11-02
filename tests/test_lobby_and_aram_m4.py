@@ -383,6 +383,7 @@ class TestWebHubLobbyAndBench:
         ott = ott_mgr.generate_ott()
         pair_resp = client.post("/api/pair", json={"ott": ott.token, "deviceName": "TestPhone"})
         token = pair_resp.json()["session_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
         return client, lcu, token
 
     @pytest.mark.asyncio

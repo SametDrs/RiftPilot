@@ -15,6 +15,7 @@ from riftpilot.adapters.mock_lcu import MockLcuAdapter
 from riftpilot.adapters.tunnel_adapter import CloudflareTunnelAdapter, MockTunnelAdapter
 from riftpilot.adapters.web_hub import create_app
 from riftpilot.core.pairing import OTTManager, SessionManager
+from tests.conftest import authorize_client
 from riftpilot.core.transport import (
     MessageEnvelope,
     TransportProtocol,
@@ -134,6 +135,7 @@ class TestWebHubWanEndpoints:
             tunnel_adapter=tunnel,
         )
         client = TestClient(app)
+        authorize_client(client, ott_mgr)
         return client, tunnel
 
     def test_wan_status_endpoint(self, app_bundle: tuple[TestClient, MockTunnelAdapter]) -> None:

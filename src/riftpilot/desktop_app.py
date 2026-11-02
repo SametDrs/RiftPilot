@@ -112,6 +112,7 @@ def run_desktop_app(
         session_manager=session_manager,
         lcu_adapter=lcu_adapter,
         tunnel_adapter=tunnel_adapter,
+        server_port=port,
     )
 
     # 5. Start Uvicorn Server in Background Thread
