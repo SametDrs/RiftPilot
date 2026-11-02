@@ -2032,6 +2032,55 @@ INDEX_HTML = """<!DOCTYPE html>
             'UNSUPPORTED_SAFE': 'GÜVENLİ GÖRÜNÜM'
         };
 
+        let isLcuConnected = false;
+        let currentPhaseStr = 'None';
+        let queueStartTime = 0;
+        let queueTimerInterval = null;
+        let isQueueActionInFlight = false;
+
+        function formatDuration(sec) {
+            const total = Math.max(0, Math.floor(sec || 0));
+            const m = Math.floor(total / 60).toString().padStart(2, '0');
+            const s = (total % 60).toString().padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        function startQueueTimer(initialSeconds = 0) {
+            if (queueTimerInterval) {
+                clearInterval(queueTimerInterval);
+                queueTimerInterval = null;
+            }
+
+            if (initialSeconds > 0) {
+                queueStartTime = Date.now() - (Math.max(0, initialSeconds) * 1000);
+            } else if (!queueStartTime) {
+                queueStartTime = Date.now();
+            }
+
+            if (queueTimerCard) queueTimerCard.style.display = 'flex';
+            if (modeSelectorCard) modeSelectorCard.style.display = 'none';
+
+            const update = () => {
+                if (!queueStartTime) return;
+                const elapsed = Math.max(0, Math.floor((Date.now() - queueStartTime) / 1000));
+                if (queueTimerClock) queueTimerClock.innerText = formatDuration(elapsed);
+            };
+            update();
+            queueTimerInterval = setInterval(update, 1000);
+        }
+
+        function stopQueueTimer() {
+            if (queueTimerInterval) {
+                clearInterval(queueTimerInterval);
+                queueTimerInterval = null;
+            }
+            queueStartTime = 0;
+            if (queueTimerCard) queueTimerCard.style.display = 'none';
+            if (queueTimerClock) queueTimerClock.innerText = '00:00';
+            if (queueEstimatedClock) queueEstimatedClock.innerText = 'Tahmini: --:--';
+            if (modeSelectorCard) modeSelectorCard.style.display = 'flex';
+        }
+
         function setStatus(text, type) {
             statusText.innerText = text;
             statusBadge.className = 'status-badge ' + (type || '');
@@ -2039,8 +2088,9 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         function updateLcuStatus(connected) {
+            isLcuConnected = Boolean(connected);
             if (lcuBadge) {
-                if (connected) {
+                if (isLcuConnected) {
                     lcuBadge.innerText = '● LoL Bağlı';
                     lcuBadge.className = 'lcu-subbadge connected';
                 } else {
@@ -2049,8 +2099,11 @@ INDEX_HTML = """<!DOCTYPE html>
                 }
             }
             if (stationLcuStatus) {
-                stationLcuStatus.innerText = connected ? 'Bağlandı' : 'İstemci Bekleniyor';
-                stationLcuStatus.style.color = connected ? 'var(--success)' : 'var(--danger)';
+                stationLcuStatus.innerText = isLcuConnected ? 'Bağlandı' : 'İstemci Bekleniyor';
+                stationLcuStatus.style.color = isLcuConnected ? 'var(--success)' : 'var(--danger)';
+            }
+            if (currentPhaseStr) {
+                updateGameflow(currentPhaseStr);
             }
         }
 
@@ -2086,11 +2139,13 @@ INDEX_HTML = """<!DOCTYPE html>
             return `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/${id}.png`;
         }
 
-        function updateGameflow(phase) {
+        function updateGameflow(phase, search) {
             const p = String(phase || 'None');
+            currentPhaseStr = p;
             if (stationPhase) stationPhase.innerText = p;
 
             if (p === 'ChampSelect') {
+                stopQueueTimer();
                 mainView.style.display = 'none';
                 champSelectView.style.display = 'flex';
                 if (socket && socket.readyState === WebSocket.OPEN) {
@@ -2107,6 +2162,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 lastFetchedRunesChampId = 0;
 
                 if (p === 'ReadyCheck') {
+                    stopQueueTimer();
                     phaseDisplay.innerText = '⚔️ MAÇ BULUNDU!';
                     phaseCard.classList.add('ready-check-active');
                     acceptBtn.disabled = false;
@@ -2126,7 +2182,11 @@ INDEX_HTML = """<!DOCTYPE html>
                         phaseDisplay.innerText = '⏳ Sırada...';
                         acceptBtn.innerText = 'SIRADA BEKLENİYOR';
                         infoMessage.innerText = 'Eşleşme aranıyor...';
-                        startQueueTimer();
+                        const timeSec = (search && search.time_in_queue) || 0;
+                        startQueueTimer(timeSec);
+                        if (search && search.estimated_delay > 0 && queueEstimatedClock) {
+                            queueEstimatedClock.innerText = 'Tahmini: ' + formatDuration(search.estimated_delay);
+                        }
                     } else if (p === 'InProgress') {
                         stopQueueTimer();
                         phaseDisplay.innerText = '🔥 Oyunda';
@@ -2138,10 +2198,17 @@ INDEX_HTML = """<!DOCTYPE html>
                         acceptBtn.innerText = 'LOBİDE';
                         infoMessage.innerText = 'Oda liderinin sırayı başlatması bekleniyor.';
                     } else {
+                        // Phase is 'None'
                         stopQueueTimer();
-                        phaseDisplay.innerText = '🎮 Oyun Dışı';
-                        acceptBtn.innerText = 'BEKLENİYOR';
-                        infoMessage.innerText = 'League Client bağlantısı bekleniyor...';
+                        if (isLcuConnected) {
+                            phaseDisplay.innerText = '🎮 İstemci Hazır (Boşta)';
+                            acceptBtn.innerText = 'HAZIR';
+                            infoMessage.innerText = 'League of Legends istemcisi bağlı. Lobi oluşturabilir veya maç arayabilirsiniz.';
+                        } else {
+                            phaseDisplay.innerText = '🎮 Oyun Dışı';
+                            acceptBtn.innerText = 'BEKLENİYOR';
+                            infoMessage.innerText = 'League Client bağlantısı bekleniyor...';
+                        }
                     }
                 }
             }
@@ -2564,22 +2631,56 @@ INDEX_HTML = """<!DOCTYPE html>
             });
         }
 
-        // Start Queue button
+        // Start Queue button with debounce guard, headers, and error handling
         if (startQueueBtn) {
             startQueueBtn.addEventListener('click', () => {
+                if (isQueueActionInFlight) return;
+                isQueueActionInFlight = true;
+                startQueueBtn.disabled = true;
+                startQueueBtn.innerText = 'BAŞLATILIYOR...';
+
+                const resetBtn = () => {
+                    isQueueActionInFlight = false;
+                    if (startQueueBtn) {
+                        startQueueBtn.disabled = false;
+                        startQueueBtn.innerText = 'MAÇ ARA';
+                    }
+                };
+
                 if (socket && socket.readyState === WebSocket.OPEN) {
-                    startQueueTimer(0);
                     socket.send(JSON.stringify({
                         type: 'START_MATCHMAKING',
                         token: sessionToken,
                         queueId: selectedQueueId
                     }));
+                    setTimeout(resetBtn, 2000);
                 } else {
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (sessionToken) {
+                        headers['X-Session-Token'] = sessionToken;
+                        headers['Authorization'] = 'Bearer ' + sessionToken;
+                    }
                     fetch('/api/lobby/matchmaking/start', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: headers,
                         body: JSON.stringify({ queueId: selectedQueueId })
-                    }).then(() => startQueueTimer(0)).catch(() => {});
+                    })
+                    .then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data })))
+                    .then(({ ok, data }) => {
+                        resetBtn();
+                        if (ok && data.success) {
+                            startQueueTimer((data.search && data.search.time_in_queue) || 0);
+                        } else {
+                            stopQueueTimer();
+                            const msg = (data && (data.detail || data.error)) || 'Maç araması başlatılamadı.';
+                            showErrorToast(typeof msg === 'string' ? msg : JSON.stringify(msg));
+                        }
+                    })
+                    .catch(err => {
+                        resetBtn();
+                        stopQueueTimer();
+                        showErrorToast('Sunucuya bağlanılamadı: ' + err.message);
+                    });
                 }
             });
         }
@@ -2890,6 +2991,21 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         });
 
+        function fetchInitialLcuStatus() {
+            fetch('/api/lcu/status')
+                .then(r => r.json())
+                .then(data => {
+                    if (data && data.connected !== undefined) {
+                        updateLcuStatus(data.connected);
+                        if (data.phase && data.phase !== 'None') {
+                            updateGameflow(data.phase, data.search);
+                        }
+                    }
+                })
+                .catch(() => {});
+        }
+        fetchInitialLcuStatus();
+
         // Initialize: Parse ?ott= query parameter or reuse stored token
         const urlParams = new URLSearchParams(window.location.search);
         const ottParam = urlParams.get('ott');
@@ -3063,6 +3179,14 @@ def create_app(
         if lcu_connected is not None:
             payload["lcu_connected"] = lcu_connected
 
+        if phase_str == "Matchmaking" and lcu_adapter is not None:
+            try:
+                search_obj = await lcu_adapter.get_matchmaking_search()
+                if search_obj:
+                    payload["search"] = search_obj.model_dump()
+            except Exception:
+                pass
+
         dead_connections: list[WebSocket] = []
 
         for ws in list(active_connections):
@@ -3128,11 +3252,28 @@ def create_app(
                     # Notify status changes
                     if status != last_status:
                         last_status = status
-                        if ui_bridge is not None and hasattr(ui_bridge, "notify_status_change"):
+                        is_conn = (status == LcuConnectionStatus.CONNECTED)
+                        bridge = getattr(app.state, "ui_bridge", ui_bridge)
+                        if bridge is not None and hasattr(bridge, "notify_status_change"):
                             try:
-                                ui_bridge.notify_status_change(status)
+                                bridge.notify_status_change(status)
                             except Exception as exc:
                                 logger.debug("Bridge status notify error: %s", exc)
+
+                        # Broadcast status transition to mobile clients
+                        status_payload = {
+                            "type": "LCU_STATUS_UPDATE",
+                            "lcu_connected": is_conn,
+                            "phase": phase_str if (is_conn and 'phase_str' in locals()) else "None",
+                        }
+                        dead_ws = []
+                        for ws in list(active_connections):
+                            try:
+                                await ws.send_json(status_payload)
+                            except Exception:
+                                dead_ws.append(ws)
+                        for ws in dead_ws:
+                            active_connections.discard(ws)
 
                     if status == LcuConnectionStatus.CONNECTED:
                         # Ensure stream is running
@@ -3345,6 +3486,26 @@ def create_app(
             "deviceName": session.device_name,
         }
 
+    @app.get("/api/lcu/status")
+    async def get_lcu_status_endpoint() -> dict[str, Any]:
+        """Query active League Client connection status and gameflow phase."""
+        if lcu_adapter is None:
+            return {"connected": False, "status": "DISCONNECTED", "phase": "None"}
+        status = await lcu_adapter.get_connection_status()
+        is_conn = (status == LcuConnectionStatus.CONNECTED)
+        phase_str = "None"
+        if is_conn:
+            try:
+                p = await lcu_adapter.get_gameflow_phase()
+                phase_str = p.value if hasattr(p, "value") else str(p)
+            except Exception:
+                pass
+        return {
+            "connected": is_conn,
+            "status": status.value if hasattr(status, "value") else str(status),
+            "phase": phase_str,
+        }
+
     @app.get("/api/champ-select")
     async def get_champ_select_state() -> dict[str, Any]:
         """Fetch current centralized champion select session, modeContext, and eligibility."""
@@ -3519,11 +3680,40 @@ def create_app(
     ) -> dict[str, Any]:
         """Start matchmaking for the active lobby with optional queue selection."""
         if lcu_adapter is None:
-            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
-        if payload is not None and payload.queueId is not None and payload.queueId > 0:
-            await lcu_adapter.create_lobby(payload.queueId)
+            raise HTTPException(status_code=503, detail="LCU adaptörü kullanılamıyor.")
+
+        status = await lcu_adapter.get_connection_status()
+        if status != LcuConnectionStatus.CONNECTED:
+            raise HTTPException(status_code=503, detail="League of Legends istemcisi bağlı değil.")
+
+        target_queue = payload.queueId if (payload and payload.queueId and payload.queueId > 0) else None
+        if target_queue:
+            created = await lcu_adapter.create_lobby(target_queue)
+            if not created:
+                raise HTTPException(status_code=400, detail=f"Oyun modu (Kuyruk {target_queue}) için lobi oluşturulamadı.")
+        else:
+            existing = await lcu_adapter.get_lobby()
+            if existing is None:
+                await lcu_adapter.create_lobby(420)
+
         success = await lcu_adapter.start_matchmaking()
-        return {"success": bool(success)}
+        if not success:
+            # Retry once if initial search failed
+            if target_queue:
+                await lcu_adapter.create_lobby(target_queue)
+                success = await lcu_adapter.start_matchmaking()
+
+        if not success:
+            raise HTTPException(
+                status_code=400,
+                detail="Maç araması başlatılamadı. Lobi lideri olduğunuzdan ve rol seçimlerinizin tamamlandığından emin olun."
+            )
+
+        search_obj = await lcu_adapter.get_matchmaking_search()
+        return {
+            "success": True,
+            "search": search_obj.model_dump() if search_obj else None,
+        }
 
     @app.post("/api/lobby/matchmaking/cancel")
     async def cancel_matchmaking_endpoint() -> dict[str, Any]:
@@ -3730,11 +3920,21 @@ def create_app(
                 except Exception as exc:
                     logger.debug("Failed to read initial gameflow phase: %s", exc)
 
+            init_search = None
+            if current_phase == "Matchmaking" and lcu_adapter is not None:
+                try:
+                    search_obj = await lcu_adapter.get_matchmaking_search()
+                    if search_obj:
+                        init_search = search_obj.model_dump()
+                except Exception:
+                    pass
+
             await websocket.send_json(
                 {
                     "type": "WELCOME",
                     "phase": current_phase,
                     "lcu_connected": lcu_connected,
+                    "search": init_search,
                 }
             )
 
@@ -3936,10 +4136,43 @@ def create_app(
                     })
                 elif cmd_type == "START_MATCHMAKING":
                     q_id = int(data.get("queueId", 0) or 0)
-                    if q_id > 0 and lcu_adapter:
+                    if lcu_adapter is None:
+                        await websocket.send_json({
+                            "type": "MATCHMAKING_STARTED",
+                            "success": False,
+                            "error": "LCU adaptörü kullanılamıyor.",
+                        })
+                        continue
+
+                    status = await lcu_adapter.get_connection_status()
+                    if status != LcuConnectionStatus.CONNECTED:
+                        await websocket.send_json({
+                            "type": "MATCHMAKING_STARTED",
+                            "success": False,
+                            "error": "League of Legends istemcisi bağlı değil.",
+                        })
+                        continue
+
+                    if q_id > 0:
                         await lcu_adapter.create_lobby(q_id)
-                    success = await lcu_adapter.start_matchmaking() if lcu_adapter else False
-                    await websocket.send_json({"type": "MATCHMAKING_STARTED", "success": success, "queueId": q_id})
+                    else:
+                        existing = await lcu_adapter.get_lobby()
+                        if existing is None:
+                            await lcu_adapter.create_lobby(420)
+
+                    success = await lcu_adapter.start_matchmaking()
+                    err_msg = ""
+                    if not success:
+                        err_msg = "Maç araması başlatılamadı. Lobi lideri olduğunuzdan ve rollerin seçildiğinden emin olun."
+
+                    search_obj = await lcu_adapter.get_matchmaking_search() if success else None
+                    await websocket.send_json({
+                        "type": "MATCHMAKING_STARTED",
+                        "success": bool(success),
+                        "queueId": q_id,
+                        "error": err_msg,
+                        "search": search_obj.model_dump() if search_obj else None,
+                    })
                 elif cmd_type == "CREATE_LOBBY":
                     q_id = int(data.get("queueId", 0) or 0)
                     success = await lcu_adapter.create_lobby(q_id) if (lcu_adapter and q_id > 0) else False

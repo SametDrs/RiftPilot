@@ -337,11 +337,29 @@ class RiotLcuAdapter(ILcuPort):
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return False
         try:
+            # Check existing lobby: if already in target queue, keep it
+            existing = await self.get_lobby()
+            if existing is not None:
+                if existing.queue_id == queue_id:
+                    return True
+                # Different queue: delete existing lobby first so POST succeeds cleanly
+                try:
+                    await self._client.delete("/lol-lobby/v2/lobby")
+                except Exception:
+                    pass
+
             resp = await self._client.post(
                 "/lol-lobby/v2/lobby",
                 json={"queueId": queue_id},
             )
-            return resp.status_code in (200, 204)
+            success = resp.status_code in (200, 204)
+            if success and queue_id in (400, 420, 440):
+                # Ensure default position preferences for draft/ranked queues
+                try:
+                    await self.set_position_preferences("MIDDLE", "TOP")
+                except Exception:
+                    pass
+            return success
         except Exception as exc:
             logger.warning("Failed to create lobby for queue %d: %s", queue_id, exc)
             return False

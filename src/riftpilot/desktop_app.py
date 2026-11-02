@@ -168,6 +168,7 @@ def run_desktop_app(
             port=port,
             lcu_adapter=lcu_adapter,
         )
+        app.state.ui_bridge = window.bridge
 
         if hasattr(window, "_init_system_tray"):
             window._init_system_tray()

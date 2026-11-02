@@ -420,3 +420,100 @@ def test_unauthorized_websocket_rejected_without_token(
     with client.websocket_connect("/ws?token=invalid_forged_token") as ws:
         msg = ws.receive_json()
         assert msg["type"] == "UNAUTHORIZED"
+
+
+# ============================================================================
+# Scenario 9: Root-Cause Verification for 3 Critical Sync & Matchmaking Bugs
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_lcu_status_api_and_ws_broadcast(
+    test_app_bundle: tuple[TestClient, MockLcuAdapter, str],
+) -> None:
+    """Issue 1 Verification: Mobile client queries /api/lcu/status and receives live LCU_STATUS_UPDATE."""
+    client, mock_lcu, token = test_app_bundle
+
+    # 1. Disconnected initial check
+    assert await mock_lcu.get_connection_status() != "CONNECTED"
+    status_resp = client.get("/api/lcu/status")
+    assert status_resp.status_code == 200
+    assert status_resp.json()["connected"] is False
+
+    # 2. Connect mock LCU
+    await mock_lcu.simulate_connect()
+    connected_resp = client.get("/api/lcu/status")
+    assert connected_resp.status_code == 200
+    assert connected_resp.json()["connected"] is True
+
+    # 3. WebSocket WELCOME payload contains lcu_connected flag
+    with client.websocket_connect(f"/ws?token={token}") as ws:
+        welcome = ws.receive_json()
+        assert welcome["type"] == "WELCOME"
+        assert welcome["lcu_connected"] is True
+
+
+@pytest.mark.asyncio
+async def test_manual_matchmaking_live_queue_timer_sync(
+    test_app_bundle: tuple[TestClient, MockLcuAdapter, str],
+) -> None:
+    """Issue 2 Verification: Manual queue start on PC broadcasts search telemetry and INDEX_HTML contains timer definitions."""
+    client, mock_lcu, token = test_app_bundle
+    await mock_lcu.simulate_connect()
+
+    # 1. Verify frontend JS contains definitions for queue timer and LCU connection state
+    assert "function formatDuration(" in INDEX_HTML
+    assert "function startQueueTimer(" in INDEX_HTML
+    assert "function stopQueueTimer()" in INDEX_HTML
+    assert "let isLcuConnected = false;" in INDEX_HTML
+    assert "🎮 İstemci Hazır (Boşta)" in INDEX_HTML
+
+    # 2. WebSocket receives search telemetry when Matchmaking phase begins
+    with client.websocket_connect(f"/ws?token={token}") as ws:
+        ws.receive_json()  # WELCOME
+
+        # Simulate desktop matchmaking start
+        await mock_lcu.create_lobby(420)
+        await mock_lcu.start_matchmaking()
+
+        gf_msg = None
+        for _ in range(5):
+            msg = ws.receive_json()
+            if msg.get("type") == "GAMEFLOW_UPDATE" and msg.get("phase") == "Matchmaking":
+                gf_msg = msg
+                break
+
+        assert gf_msg is not None
+        assert gf_msg["type"] == "GAMEFLOW_UPDATE"
+        assert gf_msg["phase"] == "Matchmaking"
+        assert "search" in gf_msg
+        assert gf_msg["search"] is not None
+        assert gf_msg["search"]["time_in_queue"] >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_mobile_matchmaking_start_and_error_handling(
+    test_app_bundle: tuple[TestClient, MockLcuAdapter, str],
+) -> None:
+    """Issue 3 Verification: Mobile matchmaking endpoint handles defaults, connects, and reports clear errors."""
+    client, mock_lcu, token = test_app_bundle
+
+    # Disconnected state: REST returns 503
+    disconn_resp = client.post("/api/lobby/matchmaking/start")
+    assert disconn_resp.status_code == 503
+    assert "League of Legends istemcisi bağlı değil." in disconn_resp.json()["detail"]
+
+    # Disconnected state: WebSocket returns success=False with clear error
+    with client.websocket_connect(f"/ws?token={token}") as ws:
+        ws.receive_json()  # WELCOME
+        ws.send_json({"type": "START_MATCHMAKING", "queueId": 420, "token": token})
+        fail_msg = receive_typed_msg(ws, "MATCHMAKING_STARTED")
+        assert fail_msg["success"] is False
+        assert "bağlı değil" in fail_msg["error"]
+
+    # Connected state: REST defaults to queue 420 and succeeds
+    await mock_lcu.simulate_connect()
+    conn_resp = client.post("/api/lobby/matchmaking/start")
+    assert conn_resp.status_code == 200
+    assert conn_resp.json()["success"] is True
+    assert conn_resp.json()["search"] is not None
+
