@@ -50,6 +50,7 @@ def build_executable(onefile: bool = False) -> int:
         "--noconfirm",
         "--clean",
         f"--paths={src_dir}",
+        f"--add-data={os.path.join(src_dir, 'riftpilot', 'adapters', 'static')}{os.pathsep}riftpilot/adapters/static",
         "--hidden-import=uvicorn.logging",
         "--hidden-import=uvicorn.loops",
         "--hidden-import=uvicorn.loops.auto",
