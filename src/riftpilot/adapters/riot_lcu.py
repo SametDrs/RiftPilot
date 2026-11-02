@@ -24,6 +24,7 @@ from riftpilot.core.lcu_port import (
     ILcuPort,
     LcuConnectionStatus,
 )
+from riftpilot.core.post_game import EndOfGameStats, HonorBallot
 from riftpilot.core.lobby import (
     BenchChampion,
     ChampSelectTrade,
@@ -88,6 +89,7 @@ class RiotLcuAdapter(ILcuPort):
             Callable[[ChampSelectSession | None], Any]
         ] = []
         self._lobby_subscribers: list[Callable[[LobbyData | None], Any]] = []
+        self._eog_subscribers: list[Callable[[EndOfGameStats | None], Any]] = []
         self._cached_spells: list[SummonerSpell] | None = None
 
         if credentials is not None:
@@ -520,6 +522,69 @@ class RiotLcuAdapter(ILcuPort):
         except Exception as exc:
             logger.warning("Failed to decline trade %d: %s", trade_id, exc)
             return False
+
+    # ========================================================================
+    # Post-Game Stats & Honor Implementation (Milestone 5)
+    # ========================================================================
+
+    async def get_end_of_game_stats(self) -> EndOfGameStats | None:
+        """Retrieve match summary and player statistics from `/lol-end-of-game/v1/eog-stats-block`."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return None
+        try:
+            resp = await self._client.get("/lol-end-of-game/v1/eog-stats-block")
+            if resp.status_code == 200:
+                data = resp.json()
+                return EndOfGameStats.from_lcu_dict(data)
+            return None
+        except Exception as exc:
+            logger.debug("Failed to get end of game stats: %s", exc)
+            return None
+
+    async def get_honor_ballot(self) -> HonorBallot | None:
+        """Retrieve eligible teammates for post-game honor voting."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return None
+        try:
+            resp = await self._client.get("/lol-honor-v2/v1/ballot")
+            if resp.status_code == 200:
+                data = resp.json()
+                return HonorBallot.from_lcu_dict(data)
+            return None
+        except Exception as exc:
+            logger.debug("Failed to get honor ballot: %s", exc)
+            return None
+
+    async def honor_player(self, summoner_id: int, honor_type: str) -> bool:
+        """Cast honor vote for a teammate."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            payload = {
+                "honorCategory": honor_type.upper(),
+                "summonerId": summoner_id,
+            }
+            resp = await self._client.post("/lol-honor-v2/v1/honor-player", json=payload)
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to honor player %d (%s): %s", summoner_id, honor_type, exc)
+            return False
+
+    def subscribe_end_of_game(
+        self, callback: Callable[[EndOfGameStats | None], Any]
+    ) -> None:
+        """Register a callback for post-game stats updates."""
+        if callback not in self._eog_subscribers:
+            self._eog_subscribers.append(callback)
+
+    def unsubscribe_end_of_game(
+        self, callback: Callable[[EndOfGameStats | None], Any]
+    ) -> bool:
+        """Unregister a post-game stats update callback."""
+        if callback in self._eog_subscribers:
+            self._eog_subscribers.remove(callback)
+            return True
+        return False
 
     async def get_champ_select_session(self) -> ChampSelectSession | None:
         """Return current champion select session, or None if inactive."""

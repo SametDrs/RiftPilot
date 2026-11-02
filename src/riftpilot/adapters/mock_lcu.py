@@ -18,6 +18,7 @@ from typing import Any, Callable
 from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
 from riftpilot.core.game_mode import GameModeContext
 from riftpilot.core.lcu_port import GameflowPhase, ILcuPort, LcuConnectionStatus
+from riftpilot.core.post_game import EndOfGameStats, HonorBallot, HonorCandidate, PlayerGameStats
 from riftpilot.core.lobby import (
     BenchChampion,
     ChampSelectTrade,
@@ -90,6 +91,10 @@ class MockLcuAdapter(ILcuPort):
             BenchChampion(champion_id=1, champion_name="Annie"),
         ]
         self._trades: list[ChampSelectTrade] = []
+        self._eog_subscribers: list[Callable[[EndOfGameStats | None], Any]] = []
+        self._eog_stats: EndOfGameStats | None = None
+        self._honor_ballot: HonorBallot | None = None
+
         self.player_response: str = "None"
         self.ready_check_state: str = "Invalid"
         self.ready_check: dict[str, Any] = {
@@ -489,6 +494,59 @@ class MockLcuAdapter(ILcuPort):
     # Test Simulation Helpers
     # ========================================================================
 
+
+    # ========================================================================
+    # Post-Game Stats & Honor Implementation (Milestone 5)
+    # ========================================================================
+
+    async def get_end_of_game_stats(self) -> EndOfGameStats | None:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return None
+        return self._eog_stats
+
+    async def get_honor_ballot(self) -> HonorBallot | None:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return None
+        return self._honor_ballot
+
+    async def honor_player(self, summoner_id: int, honor_type: str) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        logger.info("Mock honor cast for summoner %d (%s)", summoner_id, honor_type)
+        return True
+
+    def subscribe_end_of_game(
+        self, callback: Callable[[EndOfGameStats | None], Any]
+    ) -> None:
+        if callback not in self._eog_subscribers:
+            self._eog_subscribers.append(callback)
+
+    def unsubscribe_end_of_game(
+        self, callback: Callable[[EndOfGameStats | None], Any]
+    ) -> bool:
+        if callback in self._eog_subscribers:
+            self._eog_subscribers.remove(callback)
+            return True
+        return False
+
+    async def _dispatch_end_of_game(self, stats: EndOfGameStats | None) -> None:
+        for cb in list(self._eog_subscribers):
+            try:
+                res = cb(stats)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as e:
+                logger.warning("Error in eog subscriber callback: %s", e)
+
+    async def simulate_end_of_game(self, stats: EndOfGameStats | None) -> None:
+        self._eog_stats = stats
+        if stats is not None:
+            await self.simulate_phase_change(GameflowPhase.END_OF_GAME)
+        await self._dispatch_end_of_game(stats)
+
+    def set_honor_ballot(self, ballot: HonorBallot | None) -> None:
+        self._honor_ballot = ballot
+
     async def simulate_connect(self) -> None:
         """Transition mock adapter to CONNECTED state."""
         self._status = LcuConnectionStatus.CONNECTED
@@ -505,6 +563,8 @@ class MockLcuAdapter(ILcuPort):
         self.ready_check["timer"] = 0.0
         self._champ_select_session = None
         self.current_rune_page = None
+        self._eog_stats = None
+        self._honor_ballot = None
         await self._dispatch_champ_select(None)
         logger.info("Mock LCU disconnected.")
 
