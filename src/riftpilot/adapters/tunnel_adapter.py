@@ -70,6 +70,7 @@ class CloudflareTunnelAdapter(ITunnelPort):
     """Outbound adapter orchestrating Cloudflare Quick Tunnels via `cloudflared`."""
 
     URL_REGEX = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+    START_TIMEOUT = 12.0
 
     def __init__(self, binary_path: str = "cloudflared") -> None:
         self._binary_path = binary_path
@@ -105,7 +106,7 @@ class CloudflareTunnelAdapter(ITunnelPort):
             ]
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
         except Exception as exc:
@@ -114,56 +115,60 @@ class CloudflareTunnelAdapter(ITunnelPort):
             logger.error(self._error)
             return await self.get_tunnel_info()
 
-        # Parse stderr/stdout for the assigned trycloudflare URL
+        # cloudflared logs to stderr. Scan for the URL, then keep draining so the pipe never fills up.
         url_found = asyncio.Event()
 
         async def _read_output(stream: asyncio.StreamReader | None) -> None:
             if not stream:
                 return
-            while not stream.at_eof():
+            while True:
                 try:
                     line = await stream.readline()
-                    if not line:
-                        break
-                    text = line.decode("utf-8", errors="ignore")
-                    match = self.URL_REGEX.search(text)
-                    if match and not self._public_url:
-                        self._public_url = match.group(0)
-                        self._status = TunnelStatus.CONNECTED
-                        url_found.set()
                 except Exception:
                     break
+                if not line:
+                    break
+                if self._public_url:
+                    continue  # keep draining
+                match = self.URL_REGEX.search(line.decode("utf-8", errors="ignore"))
+                if match:
+                    self._public_url = match.group(0)
+                    self._status = TunnelStatus.CONNECTED
+                    url_found.set()
 
         self._listen_task = asyncio.create_task(_read_output(self._process.stderr))
 
         try:
-            await asyncio.wait_for(url_found.wait(), timeout=12.0)
+            await asyncio.wait_for(url_found.wait(), timeout=self.START_TIMEOUT)
         except asyncio.TimeoutError:
             if not self._public_url:
+                await self.stop_tunnel()
                 self._status = TunnelStatus.FAILED
                 self._error = "Timed out waiting for Cloudflare trycloudflare URL assigned"
-                await self.stop_tunnel()
 
         return await self.get_tunnel_info()
 
     async def stop_tunnel(self) -> bool:
-        """Terminate the cloudflared background subprocess."""
-        if self._process is not None:
+        """Terminate the cloudflared background subprocess (terminate, then kill after timeout)."""
+        process = self._process
+        self._process = None
+        if process is not None and process.returncode is None:
             try:
-                self._process.terminate()
-                await asyncio.wait_for(self._process.wait(), timeout=3.0)
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=3.0)
             except Exception:
                 try:
-                    self._process.kill()
+                    process.kill()
+                    await asyncio.wait_for(process.wait(), timeout=2.0)
                 except Exception:
                     pass
-            self._process = None
 
         if self._listen_task is not None:
             self._listen_task.cancel()
             self._listen_task = None
 
-        self._status = TunnelStatus.STOPPED
+        if self._status != TunnelStatus.FAILED:
+            self._status = TunnelStatus.STOPPED
         self._public_url = ""
         logger.info("Cloudflare tunnel terminated cleanly.")
         return True

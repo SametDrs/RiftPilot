@@ -77,7 +77,7 @@ RiftPilot; iş mantığını dış dünyadan, ağ protokollerinden ve kullanıc�
         +--------------+--------------+         +--------------+--------------+
         |                             |         |                             |
   [ Web Hub Adapter ]         [ Desktop UI ]    [ Riot LCU HTTPX Adapter ]  [ Mock LCU Adapter ]
-  FastAPI / WebSockets        PySide6 GUI       Canlı LCU REST/WS           391 Deterministik Test
+  FastAPI / WebSockets        PySide6 GUI       Canlı LCU REST/WS           600+ Deterministik Test
   LAN & WAN Relay Hub         Sistem Tepsisi    (Self-Signed SSL)           (League Client Gereksiz)
 ```
 
@@ -116,7 +116,7 @@ RiftPilot/
 │       └── ui/                   # Masaüstü kullanıcı arayüzü
 │           ├── main_window.py    # PySide6 modern Hextech ana pencere & sistem tepsisi
 │           └── qr_helper.py      # QR kod pixmap üreticisi
-├── tests/                        # 391 birim, entegrasyon ve TDD testleri
+├── tests/                        # 600+ birim, entegrasyon ve TDD testleri
 ├── pyproject.toml                # Bağımlılıklar ve proje yapılandırması
 ├── riftpilot.spec                # PyInstaller masaüstü paketleme yapılandırması
 ├── GEMINI.md                     # Yapay zeka ve mühendislik kuralları
@@ -156,7 +156,7 @@ python run.py --headless          # Yalnızca mobil web sunucusunu çalıştırm
 
 ## 🧪 Testleri Çalıştırma
 
-RiftPilot, League of Legends istemcisinin açık olmasına gerek kalmadan test edilebilir. 395 testin tamamı mock LCU adaptörleri ve HTTPX mock taşımalarıyla saniyeler içinde koşar:
+RiftPilot, League of Legends istemcisinin açık olmasına gerek kalmadan test edilebilir. 600+ testin tamamı mock LCU adaptörleri ve HTTPX mock taşımalarıyla saniyeler içinde koşar:
 
 ```powershell
 # Tüm birim ve entegrasyon testlerini çalıştırın

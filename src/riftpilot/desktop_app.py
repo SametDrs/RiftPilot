@@ -132,10 +132,21 @@ def run_desktop_app(
     server_thread.start()
     logger.info("FastAPI Web Hub running in background thread at http://%s:%d", lan_ip, port)
 
+    tunnel_loop: asyncio.AbstractEventLoop | None = None
     if enable_tunnel:
-        async def _start_tunnel() -> None:
-            await tunnel_adapter.start_tunnel(local_port=port)
-        asyncio.run(_start_tunnel())
+        # Long-lived loop in a daemon thread so cloudflared reader tasks outlive the start call.
+        tunnel_loop = asyncio.new_event_loop()
+        threading.Thread(target=tunnel_loop.run_forever, daemon=True, name="RiftPilot-Tunnel-Loop").start()
+        asyncio.run_coroutine_threadsafe(tunnel_adapter.start_tunnel(local_port=port), tunnel_loop)
+
+    def _stop_tunnel() -> None:
+        if tunnel_loop is None:
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(tunnel_adapter.stop_tunnel(), tunnel_loop).result(timeout=8.0)
+        except Exception:
+            pass
+        tunnel_loop.call_soon_threadsafe(tunnel_loop.stop)
 
     # 6. Run GUI or Headless Event Loop
     if headless:
@@ -146,6 +157,7 @@ def run_desktop_app(
         except KeyboardInterrupt:
             logger.info("Termination signal received. Shutting down...")
         finally:
+            _stop_tunnel()
             server.should_exit = True
             server_thread.join(timeout=3.0)
         return 0
@@ -177,6 +189,7 @@ def run_desktop_app(
 
         def _cleanup() -> None:
             logger.info("Qt application exiting. Stopping Web Hub server...")
+            _stop_tunnel()
             server.should_exit = True
             if hasattr(lcu_adapter, "close") and callable(getattr(lcu_adapter, "close")):
                 try:
@@ -193,6 +206,7 @@ def run_desktop_app(
 
     except Exception as exc:
         logger.error("Failed to start PySide6 desktop GUI: %s", exc, exc_info=True)
+        _stop_tunnel()
         server.should_exit = True
         return 1
 
