@@ -18,7 +18,10 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QTimer, Qt, Signal
 from PySide6.QtGui import QFont
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QMenu,
+    QSystemTrayIcon,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -257,6 +260,8 @@ class MainWindow(QMainWindow):
         self.lan_ip = lan_ip
         self.port = port
         self.lcu_adapter = lcu_adapter
+        self._is_quitting: bool = False
+        self.tray_icon: QSystemTrayIcon | None = None
 
         self.setWindowTitle("RiftPilot — Hextech League Companion")
         self.resize(500, 720)
@@ -580,15 +585,82 @@ class MainWindow(QMainWindow):
         self.update_device_list()
         return result
 
+
+    def _init_system_tray(self) -> None:
+        """Initialize desktop system tray icon and context menu."""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            logger.debug("System tray is not available in current environment.")
+            return
+
+        self.tray_icon = QSystemTrayIcon(self)
+        # Use application window icon or fallback
+        if not self.windowIcon().isNull():
+            self.tray_icon.setIcon(self.windowIcon())
+        elif self.qr_label.pixmap() and not self.qr_label.pixmap().isNull():
+            self.tray_icon.setIcon(QIcon(self.qr_label.pixmap()))
+
+        tray_menu = QMenu()
+        show_action = tray_menu.addAction("📊 RiftPilot'ı Aç / Göster")
+        show_action.triggered.connect(self.show_and_activate)
+
+        hide_action = tray_menu.addAction("⬇️ Sistem Tepsisine Küçült")
+        hide_action.triggered.connect(self.hide)
+
+        tray_menu.addSeparator()
+
+        quit_action = tray_menu.addAction("✕ Tamamen Kapat")
+        quit_action.triggered.connect(self.quit_application)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        self.tray_icon.show()
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+            if self.isVisible():
+                self.hide()
+            else:
+                self.show_and_activate()
+
+    def show_and_activate(self) -> None:
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def quit_application(self) -> None:
+        self._is_quitting = True
+        if self.tray_icon:
+            self.tray_icon.hide()
+        self.close()
+
+    def closeEvent(self, event: Any) -> None:
+        """Minimize to tray on window close button [X] instead of terminating."""
+        if getattr(self, "_is_quitting", False) or not getattr(self, "tray_icon", None) or not self.tray_icon.isVisible():
+            event.accept()
+        else:
+            event.ignore()
+            self.hide()
+            self.show_tray_notification(
+                "RiftPilot Arka Planda Çalışıyor",
+                "Mobil bağlantı açık kaldı. Açmak için tepsi simgesine çift tıklayın.",
+            )
+
+    def show_tray_notification(self, title: str, message: str) -> None:
+        """Show a native OS tray balloon/toast notification if tray is available."""
+        if self.tray_icon and self.tray_icon.isVisible():
+            self.tray_icon.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 4000)
+
     def on_gameflow_phase_changed(self, phase: GameflowPhase | str) -> None:
         """Update gameflow status label based on client phase."""
         phase_str = phase.value if hasattr(phase, "value") else str(phase)
         if phase == GameflowPhase.READY_CHECK or phase_str == "ReadyCheck":
             self.gameflow_label.setText("⚔️ MAÇ BULUNDU!")
-        elif phase == GameflowPhase.MATCHMAKING or phase_str == "Matchmaking":
-            self.gameflow_label.setText("⏳ Sırada...")
+            self.show_tray_notification("⚔️ MAÇ BULUNDU!", "Eşleşme bulundu! Kabul etmek için hazır.")
         elif phase == GameflowPhase.CHAMP_SELECT or phase_str == "ChampSelect":
             self.gameflow_label.setText("🏆 Şampiyon Seçimi")
+            self.show_tray_notification("🏆 Şampiyon Seçimi", "Sıra sizde veya seçim odası aktif.")
+        elif phase == GameflowPhase.MATCHMAKING or phase_str == "Matchmaking":
+            self.gameflow_label.setText("⏳ Sırada...")
         elif phase == GameflowPhase.IN_PROGRESS or phase_str == "InProgress":
             self.gameflow_label.setText("🔥 Oyunda")
         elif phase == GameflowPhase.LOBBY or phase_str == "Lobby":
