@@ -42,8 +42,13 @@ from riftpilot.core.lcu_port import (
 from riftpilot.core.pairing import DeviceSession, OTTManager, SessionManager
 from riftpilot.core.transport import ITunnelPort, TunnelInfo, TunnelStatus
 from riftpilot.core.runes_spells import (
+    RUNE_DATA,
+    CustomRuneManager,
+    CustomRunePage,
     RunePage,
     SummonerSpell,
+    custom_rune_manager,
+    get_custom_rune_manager,
     get_spells_for_mode,
 )
 
@@ -1092,12 +1097,12 @@ INDEX_HTML = """<!DOCTYPE html>
             pointer-events: none;
         }
 
-        /* 3 Recommended Rune Pages Section */
+        /* 3 Recommended Rune Pages Section (Redesigned Vertical Stack) */
         .runes-section {
             width: 100%;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 10px;
             border-top: 1px solid rgba(200, 170, 110, 0.2);
             padding-top: 10px;
         }
@@ -1117,37 +1122,81 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .runes-cards-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            display: flex;
+            flex-direction: column;
             gap: 8px;
             width: 100%;
         }
 
         .rune-card {
-            background: rgba(14, 23, 42, 0.9);
-            border: 1px solid var(--card-border);
-            border-radius: var(--radius-md);
-            padding: 8px;
+            background: rgba(14, 23, 42, 0.92);
+            border: 1.5px solid var(--card-border);
+            border-radius: 12px;
+            padding: 10px 14px;
             cursor: pointer;
             display: flex;
-            flex-direction: column;
-            gap: 4px;
+            align-items: center;
+            gap: 12px;
             transition: all var(--transition-fast);
-            min-height: 80px;
+            min-height: 64px;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
         .rune-card:active {
-            transform: scale(0.96);
+            transform: scale(0.98);
         }
 
         .rune-card.selected {
             border-color: var(--arcane-cyan);
-            background: rgba(10, 200, 185, 0.15);
-            box-shadow: 0 0 12px var(--arcane-cyan-glow);
+            background: rgba(10, 200, 185, 0.14);
+            box-shadow: 0 0 16px rgba(10, 200, 185, 0.35);
         }
 
-        .rune-card-keystone {
-            font-size: 11px;
+        .rune-card-left {
+            position: relative;
+            flex-shrink: 0;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: #0b1322;
+            border: 2px solid rgba(200, 170, 110, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+        }
+
+        .rune-card.selected .rune-card-left {
+            border-color: var(--arcane-cyan);
+            box-shadow: 0 0 10px var(--arcane-cyan-glow);
+        }
+
+        .rune-card-keystone-icon {
+            width: 38px;
+            height: 38px;
+            object-fit: contain;
+            border-radius: 50%;
+        }
+
+        .rune-card-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            min-width: 0;
+        }
+
+        .rune-card-top-line {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .rune-card-keystone-title {
+            font-size: 13px;
             font-weight: 800;
             color: var(--gold-1);
             white-space: nowrap;
@@ -1155,23 +1204,562 @@ INDEX_HTML = """<!DOCTYPE html>
             text-overflow: ellipsis;
         }
 
-        .rune-card-trees {
-            font-size: 9px;
-            color: var(--arcane-cyan);
-            font-weight: 700;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+        .rune-card.selected .rune-card-keystone-title {
+            color: #ffffff;
+            text-shadow: 0 0 8px rgba(10, 200, 185, 0.5);
         }
 
-        .rune-card-perks {
-            font-size: 9px;
+        .rune-card-tree-badge {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--arcane-cyan);
+            background: rgba(10, 200, 185, 0.1);
+            padding: 2px 7px;
+            border-radius: 10px;
+            border: 1px solid rgba(10, 200, 185, 0.3);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .rune-card-summary {
+            font-size: 11px;
             color: var(--text-secondary);
-            line-height: 1.3;
+            line-height: 1.35;
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
+        }
+
+        .rune-card-radio {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 2px solid var(--card-border);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 900;
+            color: transparent;
+            transition: all var(--transition-fast);
+        }
+
+        .rune-card.selected .rune-card-radio {
+            border-color: var(--arcane-cyan);
+            background: var(--arcane-cyan);
+            color: #070b13;
+        }
+
+        /* 4th Card: + Kendi Rünümü Oluştur (Özel Rün) */
+        .rune-builder-trigger-card {
+            background: rgba(18, 28, 48, 0.7);
+            border: 1.5px dashed var(--gold-2);
+            border-radius: 12px;
+            padding: 12px 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all var(--transition-fast);
+            min-height: 62px;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .rune-builder-trigger-card:hover,
+        .rune-builder-trigger-card:active {
+            border-color: var(--gold-1);
+            background: rgba(200, 170, 110, 0.12);
+            box-shadow: 0 0 16px rgba(200, 170, 110, 0.3);
+            transform: scale(0.98);
+        }
+
+        .rune-builder-trigger-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: rgba(200, 170, 110, 0.15);
+            border: 1.5px solid var(--gold-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+            color: var(--gold-1);
+        }
+
+        .rune-builder-trigger-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .rune-builder-trigger-title {
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--gold-1);
+            letter-spacing: 0.3px;
+        }
+
+        .rune-builder-trigger-subtitle {
+            font-size: 11px;
+            color: var(--text-secondary);
+            line-height: 1.25;
+        }
+
+        .rune-builder-trigger-arrow {
+            font-size: 16px;
+            color: var(--gold-2);
+            font-weight: 800;
+            padding-right: 4px;
+        }
+
+        /* Custom Rune Builder Modal Overlay (#customRuneModal) */
+        .custom-rune-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(3, 7, 18, 0.88);
+            z-index: 1200;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        @media (min-width: 768px) {
+            .custom-rune-modal {
+                align-items: center;
+                padding: 20px;
+            }
+        }
+
+        .custom-rune-modal-content {
+            background: #080e1a;
+            border-top: 2px solid var(--gold-2);
+            border-radius: 20px 20px 0 0;
+            width: 100%;
+            max-width: 680px;
+            max-height: 92vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.8);
+            animation: slideUp 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+            overflow: hidden;
+        }
+
+        @media (min-width: 768px) {
+            .custom-rune-modal-content {
+                border-radius: 16px;
+                border: 2px solid var(--gold-2);
+                max-height: 88vh;
+            }
+        }
+
+        .custom-rune-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--card-border);
+            background: rgba(14, 23, 42, 0.7);
+            flex-shrink: 0;
+        }
+
+        .custom-rune-header-title-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .custom-rune-header-icon {
+            font-size: 18px;
+            color: var(--gold-1);
+        }
+
+        .custom-rune-modal-title {
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--gold-1);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .custom-rune-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--card-border);
+            background: #0a1120;
+            flex-shrink: 0;
+        }
+
+        .custom-rune-tab {
+            flex: 1;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 700;
+            padding: 11px 14px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            text-align: center;
+        }
+
+        .custom-rune-tab.active {
+            color: var(--gold-1);
+            border-bottom-color: var(--gold-1);
+            background: rgba(200, 170, 110, 0.08);
+        }
+
+        .custom-rune-view {
+            padding: 16px 18px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            flex: 1;
+        }
+
+        .custom-rune-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .custom-rune-label {
+            font-size: 11px;
+            font-weight: 800;
+            color: var(--gold-2);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .custom-rune-input {
+            background: #0d1728;
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 13px;
+            color: var(--text-primary);
+            font-family: inherit;
+            outline: none;
+            transition: border-color var(--transition-fast);
+        }
+
+        .custom-rune-input:focus {
+            border-color: var(--arcane-cyan);
+            box-shadow: 0 0 8px var(--arcane-cyan-glow);
+        }
+
+        .custom-rune-section {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .custom-rune-section-title {
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--gold-2);
+            letter-spacing: 0.7px;
+            text-transform: uppercase;
+        }
+
+        .trees-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 6px;
+        }
+
+        .tree-btn {
+            background: rgba(14, 23, 42, 0.85);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 8px 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            color: var(--text-secondary);
+        }
+
+        .tree-btn:active {
+            transform: scale(0.95);
+        }
+
+        .tree-btn.selected {
+            border-color: var(--tree-color, var(--gold-1));
+            background: rgba(200, 170, 110, 0.15);
+            color: #ffffff;
+            box-shadow: 0 0 10px rgba(200, 170, 110, 0.3);
+        }
+
+        .tree-btn.disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .tree-btn-icon {
+            width: 28px;
+            height: 28px;
+            object-fit: contain;
+        }
+
+        .tree-btn-name {
+            font-size: 9px;
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+
+        .rune-slots-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: rgba(10, 17, 30, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 10px;
+        }
+
+        .rune-slot-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            gap: 8px;
+            padding: 4px 0;
+        }
+
+        .rune-item-btn {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: #0d1728;
+            border: 1.5px solid var(--card-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            position: relative;
+            transition: all var(--transition-fast);
+            padding: 3px;
+        }
+
+        .rune-item-btn.keystone {
+            width: 54px;
+            height: 54px;
+            border-width: 2px;
+        }
+
+        .rune-item-btn:active {
+            transform: scale(0.92);
+        }
+
+        .rune-item-btn.selected {
+            border-color: var(--gold-1);
+            box-shadow: 0 0 12px rgba(200, 170, 110, 0.5);
+            background: rgba(200, 170, 110, 0.18);
+        }
+
+        .rune-item-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            border-radius: 50%;
+        }
+
+        .shard-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 4px 6px;
+        }
+
+        .shard-row-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            width: 65px;
+            flex-shrink: 0;
+        }
+
+        .shard-options {
+            display: flex;
+            gap: 12px;
+            flex: 1;
+            justify-content: flex-end;
+        }
+
+        .shard-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #0d1728;
+            border: 1.5px solid var(--card-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            padding: 4px;
+        }
+
+        .shard-btn.selected {
+            border-color: var(--arcane-cyan);
+            background: rgba(10, 200, 185, 0.2);
+            box-shadow: 0 0 8px var(--arcane-cyan-glow);
+        }
+
+        .shard-img {
+            width: 24px;
+            height: 24px;
+            object-fit: contain;
+        }
+
+        .custom-rune-alert {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid #ef4444;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 11px;
+            color: #fca5a5;
+            line-height: 1.4;
+            font-weight: 600;
+        }
+
+        .custom-rune-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 4px;
+            padding-bottom: 12px;
+        }
+
+        .btn-save-rune {
+            flex: 1;
+            background: #111d33;
+            border: 1.5px solid var(--gold-2);
+            border-radius: 8px;
+            color: var(--gold-1);
+            font-size: 12px;
+            font-weight: 800;
+            padding: 12px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            text-align: center;
+        }
+
+        .btn-save-rune:active {
+            transform: scale(0.98);
+        }
+
+        .btn-apply-custom-rune {
+            flex: 1;
+            background: linear-gradient(135deg, #c8aa6e 0%, #785a28 100%);
+            border: 1px solid var(--gold-1);
+            border-radius: 8px;
+            color: #070b13;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 12px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            text-align: center;
+        }
+
+        .btn-apply-custom-rune:active {
+            transform: scale(0.98);
+        }
+
+        .saved-runes-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .saved-rune-card {
+            background: rgba(14, 23, 42, 0.9);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            transition: all var(--transition-fast);
+        }
+
+        .saved-rune-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .saved-rune-card-title {
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--gold-1);
+        }
+
+        .saved-rune-trees {
+            font-size: 10px;
+            color: var(--arcane-cyan);
+            font-weight: 700;
+        }
+
+        .saved-rune-perks {
+            font-size: 11px;
+            color: var(--text-secondary);
+            line-height: 1.35;
+        }
+
+        .saved-rune-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .btn-saved-apply {
+            background: rgba(10, 200, 185, 0.2);
+            border: 1px solid var(--arcane-cyan);
+            color: var(--arcane-cyan);
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 6px 12px;
+            cursor: pointer;
+        }
+
+        .btn-saved-delete {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid #ef4444;
+            color: #fca5a5;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 6px 10px;
+            cursor: pointer;
+        }
+
+        .saved-runes-empty {
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 30px 10px;
+            line-height: 1.5;
         }
 
         .runes-empty-msg {
@@ -2141,6 +2729,16 @@ INDEX_HTML = """<!DOCTYPE html>
                     </div>
                     <div id="runesCardsGrid" class="runes-cards-grid" style="display:none;"></div>
                     <div id="runesEmptyMsg" class="runes-empty-msg">Şampiyon seçildiğinde istemcinin 3 rün önerisi burada listelenir.</div>
+
+                    <!-- 4th Card: + Kendi Rünümü Oluştur -->
+                    <div id="btnOpenCustomRuneBuilder" class="rune-builder-trigger-card">
+                        <div class="rune-builder-trigger-icon">⚡</div>
+                        <div class="rune-builder-trigger-content">
+                            <div class="rune-builder-trigger-title">+ Kendi Rünümü Oluştur</div>
+                            <div class="rune-builder-trigger-subtitle">Özel rün sayfası tasarla, kaydet ve istemciye uygula</div>
+                        </div>
+                        <div class="rune-builder-trigger-arrow">➔</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2179,6 +2777,81 @@ INDEX_HTML = """<!DOCTYPE html>
                 <button id="spellsModalClose" class="modal-close-btn">&times;</button>
             </div>
             <div id="spellsGrid" class="spells-grid"></div>
+        </div>
+    </div>
+
+    <!-- Custom Rune Builder Modal (#customRuneModal) -->
+    <div id="customRuneModal" class="custom-rune-modal" style="display: none;">
+        <div class="custom-rune-modal-content">
+            <div class="custom-rune-modal-header">
+                <div class="custom-rune-header-title-box">
+                    <span class="custom-rune-header-icon">⚡</span>
+                    <span class="custom-rune-modal-title">Özel Rün Oluşturucu</span>
+                </div>
+                <button id="customRuneModalClose" class="modal-close-btn">&times;</button>
+            </div>
+
+            <!-- Modal Navigation Tabs -->
+            <div class="custom-rune-tabs">
+                <button id="tabBtnBuilder" class="custom-rune-tab active" type="button">🛠️ Rün Tasarla</button>
+                <button id="tabBtnSaved" class="custom-rune-tab" type="button">📁 Kayıtlı Rünlerim (<span id="savedRunesCount">0</span>)</button>
+            </div>
+
+            <!-- Tab 1: Builder View -->
+            <div id="customRuneBuilderView" class="custom-rune-view">
+                <!-- Page Name -->
+                <div class="custom-rune-field">
+                    <label class="custom-rune-label" for="customRuneNameInput">Rün Sayfası İsmi</label>
+                    <input id="customRuneNameInput" class="custom-rune-input" type="text" maxlength="32" placeholder="Örn: Agresif Aatrox, Tank Malphite" value="Özel Rün Sayfası">
+                </div>
+
+                <!-- Primary Tree Selector -->
+                <div class="custom-rune-section">
+                    <div class="custom-rune-section-title">1. BİRİNCİL AĞAÇ (ANA YOL)</div>
+                    <div id="primaryTreesGrid" class="trees-grid"></div>
+                </div>
+
+                <!-- Primary Runes Slots -->
+                <div class="custom-rune-section">
+                    <div class="custom-rune-section-title">BİRİNCİL RÜNLER (1 ANAHTAR + 3 KÜÇÜK)</div>
+                    <div id="primaryRunesSlots" class="rune-slots-container"></div>
+                </div>
+
+                <!-- Secondary Tree Selector -->
+                <div class="custom-rune-section">
+                    <div class="custom-rune-section-title">2. İKİNCİL AĞAÇ (YAN YOL — FARKLI BİR AĞAÇ)</div>
+                    <div id="secondaryTreesGrid" class="trees-grid"></div>
+                </div>
+
+                <!-- Secondary Runes Slots -->
+                <div class="custom-rune-section">
+                    <div class="custom-rune-section-title">İKİNCİL RÜNLER (FARKLI SATIRLARDAN 2 KÜÇÜK RÜN)</div>
+                    <div id="secondaryRunesSlots" class="rune-slots-container"></div>
+                </div>
+
+                <!-- Stat Shards Slots -->
+                <div class="custom-rune-section">
+                    <div class="custom-rune-section-title">3. NİTELİK PARÇALARI (SALDIRI / ESNEK / SAVUNMA)</div>
+                    <div id="statShardsSlots" class="rune-slots-container"></div>
+                </div>
+
+                <!-- Validation Alert Message -->
+                <div id="customRuneValidationAlert" class="custom-rune-alert" style="display: none;"></div>
+
+                <!-- Action Buttons -->
+                <div class="custom-rune-actions">
+                    <button id="btnSaveCustomRune" class="btn-save-rune" type="button">💾 RÜNÜ KAYDET</button>
+                    <button id="btnApplyCustomRune" class="btn-apply-custom-rune" type="button">⚡ İSTEMCİYE UYGULA</button>
+                </div>
+            </div>
+
+            <!-- Tab 2: Saved Runes View -->
+            <div id="customRuneSavedView" class="custom-rune-view" style="display: none;">
+                <div id="savedRunesList" class="saved-runes-list"></div>
+                <div id="savedRunesEmpty" class="saved-runes-empty" style="display: none;">
+                    Henüz kayıtlı özel rününüz yok. "Rün Tasarla" sekmesinden yeni bir rün oluşturup kaydedebilirsiniz!
+                </div>
+            </div>
         </div>
     </div>
 
@@ -2504,17 +3177,30 @@ INDEX_HTML = """<!DOCTYPE html>
 
             recommendedRunePages.forEach((rec, idx) => {
                 const card = document.createElement('div');
-                card.className = 'rune-card';
+                const isSelected = (idx === selectedRunePageIndex);
+                card.className = 'rune-card' + (isSelected ? ' selected' : '');
                 const details = Array.isArray(rec.perkNames) ? rec.perkNames.slice(1, 6).join(', ') : '';
+                const keystoneIcon = rec.keystoneIcon || 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsadaptiveforceicon.png';
                 card.innerHTML = `
-                    <div class="rune-card-keystone">${rec.keystoneName || rec.name}</div>
-                    <div class="rune-card-trees">${rec.primaryTreeName || ''} + ${rec.subTreeName || ''}</div>
-                    <div class="rune-card-perks">${details}</div>
+                    <div class="rune-card-left">
+                        <img class="rune-card-keystone-icon" src="${keystoneIcon}" onerror="this.src='https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsadaptiveforceicon.png'" alt="keystone">
+                    </div>
+                    <div class="rune-card-body">
+                        <div class="rune-card-top-line">
+                            <span class="rune-card-keystone-title">${rec.keystoneName || rec.name}</span>
+                            <span class="rune-card-tree-badge">${rec.primaryTreeName || ''} + ${rec.subTreeName || ''}</span>
+                        </div>
+                        <div class="rune-card-summary">${details}</div>
+                    </div>
+                    <div class="rune-card-radio">${isSelected ? '✓' : ''}</div>
                 `;
                 card.addEventListener('click', () => {
                     selectedRunePageIndex = idx;
                     Array.from(runesCardsGrid.children).forEach((el, i) => {
-                        el.classList.toggle('selected', i === idx);
+                        const isSel = (i === idx);
+                        el.classList.toggle('selected', isSel);
+                        const radio = el.querySelector('.rune-card-radio');
+                        if (radio) radio.innerText = isSel ? '✓' : '';
                     });
                     runesKeystoneName.innerText = `Seçilen: ${rec.keystoneName || rec.name}`;
                     applyRunesBtn.disabled = false;
@@ -2547,6 +3233,506 @@ INDEX_HTML = """<!DOCTYPE html>
             if (e.target === spellsModal) closeSpellsPicker();
         });
         if (applyRunesBtn) applyRunesBtn.addEventListener('click', applySelectedRunePage);
+
+        // =====================================================================
+        // Custom Rune Builder Logic
+        // =====================================================================
+        let runeTreesCatalog = null;
+        let savedCustomRunes = [];
+        let customRuneState = {
+            name: 'Özel Rün Sayfası',
+            primaryStyleId: 8000,
+            subStyleId: 8100,
+            primaryRunes: [8005, 9111, 9104, 8014],
+            secondaryRunes: [8139, 8135],
+            statShards: [5008, 5008, 5011]
+        };
+
+        const customRuneModal = document.getElementById('customRuneModal');
+        const customRuneModalClose = document.getElementById('customRuneModalClose');
+        const btnOpenCustomRuneBuilder = document.getElementById('btnOpenCustomRuneBuilder');
+        const tabBtnBuilder = document.getElementById('tabBtnBuilder');
+        const tabBtnSaved = document.getElementById('tabBtnSaved');
+        const customRuneBuilderView = document.getElementById('customRuneBuilderView');
+        const customRuneSavedView = document.getElementById('customRuneSavedView');
+        const savedRunesCount = document.getElementById('savedRunesCount');
+        const customRuneNameInput = document.getElementById('customRuneNameInput');
+        const primaryTreesGrid = document.getElementById('primaryTreesGrid');
+        const primaryRunesSlots = document.getElementById('primaryRunesSlots');
+        const secondaryTreesGrid = document.getElementById('secondaryTreesGrid');
+        const secondaryRunesSlots = document.getElementById('secondaryRunesSlots');
+        const statShardsSlots = document.getElementById('statShardsSlots');
+        const customRuneValidationAlert = document.getElementById('customRuneValidationAlert');
+        const btnSaveCustomRune = document.getElementById('btnSaveCustomRune');
+        const btnApplyCustomRune = document.getElementById('btnApplyCustomRune');
+        const savedRunesList = document.getElementById('savedRunesList');
+        const savedRunesEmpty = document.getElementById('savedRunesEmpty');
+
+        async function fetchRuneTrees() {
+            if (runeTreesCatalog) return runeTreesCatalog;
+            try {
+                const res = await fetch('/api/runes/trees');
+                if (res.ok) {
+                    runeTreesCatalog = await res.json();
+                }
+            } catch (err) {
+                console.error('Failed to fetch rune trees:', err);
+            }
+            return runeTreesCatalog;
+        }
+
+        async function fetchSavedRunes() {
+            try {
+                const res = await fetch('/api/runes/custom');
+                if (res.ok) {
+                    const data = await res.json();
+                    savedCustomRunes = data.pages || [];
+                    if (savedRunesCount) savedRunesCount.innerText = savedCustomRunes.length;
+                    renderSavedRunesList();
+                }
+            } catch (err) {
+                console.error('Failed to fetch saved runes:', err);
+            }
+        }
+
+        function switchCustomRuneTab(tab) {
+            if (tab === 'builder') {
+                tabBtnBuilder.classList.add('active');
+                tabBtnSaved.classList.remove('active');
+                customRuneBuilderView.style.display = 'flex';
+                customRuneSavedView.style.display = 'none';
+            } else {
+                tabBtnBuilder.classList.remove('active');
+                tabBtnSaved.classList.add('active');
+                customRuneBuilderView.style.display = 'none';
+                customRuneSavedView.style.display = 'flex';
+                fetchSavedRunes();
+            }
+        }
+
+        async function openCustomRuneBuilderModal() {
+            if (customRuneModal) customRuneModal.style.display = 'flex';
+            switchCustomRuneTab('builder');
+            await fetchRuneTrees();
+            await fetchSavedRunes();
+            renderBuilderInterface();
+        }
+
+        function closeCustomRuneBuilderModal() {
+            if (customRuneModal) customRuneModal.style.display = 'none';
+        }
+
+        function renderBuilderInterface() {
+            if (!runeTreesCatalog) return;
+            renderPrimaryTrees();
+            renderPrimaryRunes();
+            renderSecondaryTrees();
+            renderSecondaryRunes();
+            renderStatShards();
+            validateCustomRuneState();
+        }
+
+        function renderPrimaryTrees() {
+            if (!primaryTreesGrid || !runeTreesCatalog || !runeTreesCatalog.trees) return;
+            primaryTreesGrid.innerHTML = '';
+            runeTreesCatalog.trees.forEach(tree => {
+                const btn = document.createElement('div');
+                const isSelected = (tree.id === customRuneState.primaryStyleId);
+                btn.className = 'tree-btn' + (isSelected ? ' selected' : '');
+                btn.style.setProperty('--tree-color', tree.color || '#c8aa6e');
+                btn.innerHTML = `
+                    <img class="tree-btn-icon" src="${tree.icon}" alt="${tree.name}">
+                    <span class="tree-btn-name">${tree.name}</span>
+                `;
+                btn.addEventListener('click', () => {
+                    if (customRuneState.primaryStyleId !== tree.id) {
+                        customRuneState.primaryStyleId = tree.id;
+                        // If secondary tree is the same as new primary, change secondary tree
+                        if (customRuneState.subStyleId === tree.id) {
+                            const other = runeTreesCatalog.trees.find(t => t.id !== tree.id);
+                            customRuneState.subStyleId = other ? other.id : 8100;
+                        }
+                        // Reset primary runes to defaults for this tree
+                        customRuneState.primaryRunes = tree.slots.map(s => s.runes[0] ? s.runes[0].id : 0);
+                        renderBuilderInterface();
+                    }
+                });
+                primaryTreesGrid.appendChild(btn);
+            });
+        }
+
+        function renderPrimaryRunes() {
+            if (!primaryRunesSlots || !runeTreesCatalog) return;
+            primaryRunesSlots.innerHTML = '';
+            const tree = runeTreesCatalog.trees.find(t => t.id === customRuneState.primaryStyleId);
+            if (!tree || !tree.slots) return;
+
+            tree.slots.forEach((slot, slotIdx) => {
+                const row = document.createElement('div');
+                row.className = 'rune-slot-row';
+                const isKeystone = (slotIdx === 0);
+
+                slot.runes.forEach(rune => {
+                    const btn = document.createElement('div');
+                    const isSelected = (customRuneState.primaryRunes[slotIdx] === rune.id);
+                    btn.className = 'rune-item-btn' + (isKeystone ? ' keystone' : '') + (isSelected ? ' selected' : '');
+                    btn.title = `${rune.name} — ${rune.desc || ''}`;
+                    btn.innerHTML = `<img class="rune-item-img" src="${rune.icon}" alt="${rune.name}">`;
+                    btn.addEventListener('click', () => {
+                        customRuneState.primaryRunes[slotIdx] = rune.id;
+                        renderPrimaryRunes();
+                        validateCustomRuneState();
+                    });
+                    row.appendChild(btn);
+                });
+                primaryRunesSlots.appendChild(row);
+            });
+        }
+
+        function renderSecondaryTrees() {
+            if (!secondaryTreesGrid || !runeTreesCatalog || !runeTreesCatalog.trees) return;
+            secondaryTreesGrid.innerHTML = '';
+            runeTreesCatalog.trees.forEach(tree => {
+                const isPrimary = (tree.id === customRuneState.primaryStyleId);
+                const isSelected = (tree.id === customRuneState.subStyleId);
+                const btn = document.createElement('div');
+                btn.className = 'tree-btn' + (isPrimary ? ' disabled' : '') + (isSelected ? ' selected' : '');
+                btn.style.setProperty('--tree-color', tree.color || '#c8aa6e');
+                btn.innerHTML = `
+                    <img class="tree-btn-icon" src="${tree.icon}" alt="${tree.name}">
+                    <span class="tree-btn-name">${tree.name}</span>
+                `;
+                if (!isPrimary) {
+                    btn.addEventListener('click', () => {
+                        if (customRuneState.subStyleId !== tree.id) {
+                            customRuneState.subStyleId = tree.id;
+                            // Pick default 2 runes from row 1 & row 2
+                            const secSlots = tree.slots.slice(1);
+                            customRuneState.secondaryRunes = [
+                                secSlots[0] && secSlots[0].runes[0] ? secSlots[0].runes[0].id : 0,
+                                secSlots[1] && secSlots[1].runes[0] ? secSlots[1].runes[0].id : 0
+                            ];
+                            renderSecondaryTrees();
+                            renderSecondaryRunes();
+                            validateCustomRuneState();
+                        }
+                    });
+                }
+                secondaryTreesGrid.appendChild(btn);
+            });
+        }
+
+        function renderSecondaryRunes() {
+            if (!secondaryRunesSlots || !runeTreesCatalog) return;
+            secondaryRunesSlots.innerHTML = '';
+            const tree = runeTreesCatalog.trees.find(t => t.id === customRuneState.subStyleId);
+            if (!tree || !tree.slots) return;
+
+            // Secondary slots: Row 1, Row 2, Row 3
+            const minorSlots = tree.slots.slice(1);
+
+            minorSlots.forEach((slot, localSlotIdx) => {
+                const rowIdx = localSlotIdx + 1; // 1, 2, 3
+                const row = document.createElement('div');
+                row.className = 'rune-slot-row';
+
+                slot.runes.forEach(rune => {
+                    const btn = document.createElement('div');
+                    const isSelected = customRuneState.secondaryRunes.includes(rune.id);
+                    btn.className = 'rune-item-btn' + (isSelected ? ' selected' : '');
+                    btn.title = `${rune.name} — ${rune.desc || ''}`;
+                    btn.innerHTML = `<img class="rune-item-img" src="${rune.icon}" alt="${rune.name}">`;
+
+                    btn.addEventListener('click', () => {
+                        handleSecondaryRuneClick(rune.id, rowIdx, minorSlots);
+                    });
+                    row.appendChild(btn);
+                });
+                secondaryRunesSlots.appendChild(row);
+            });
+        }
+
+        function handleSecondaryRuneClick(runeId, rowIdx, minorSlots) {
+            // Find which rows are currently selected
+            const secTree = runeTreesCatalog.trees.find(t => t.id === customRuneState.subStyleId);
+            if (!secTree) return;
+
+            const getRuneRow = (id) => {
+                for (let r = 1; r < secTree.slots.length; r++) {
+                    if (secTree.slots[r].runes.some(rn => rn.id === id)) return r;
+                }
+                return 0;
+            };
+
+            const sel0 = customRuneState.secondaryRunes[0];
+            const sel1 = customRuneState.secondaryRunes[1];
+            const row0 = getRuneRow(sel0);
+            const row1 = getRuneRow(sel1);
+
+            if (sel0 === runeId || sel1 === runeId) {
+                // Clicking an already selected rune: no-op or leave it
+                return;
+            }
+
+            if (row0 === rowIdx) {
+                // Clicked in row 0: replace sel0
+                customRuneState.secondaryRunes[0] = runeId;
+            } else if (row1 === rowIdx) {
+                // Clicked in row 1: replace sel1
+                customRuneState.secondaryRunes[1] = runeId;
+            } else {
+                // Clicked in the 3rd row: replace the 2nd selection so user has row0 + new row
+                customRuneState.secondaryRunes[1] = runeId;
+            }
+
+            renderSecondaryRunes();
+            validateCustomRuneState();
+        }
+
+        function renderStatShards() {
+            if (!statShardsSlots || !runeTreesCatalog || !runeTreesCatalog.statShards) return;
+            statShardsSlots.innerHTML = '';
+
+            runeTreesCatalog.statShards.forEach((group, sIdx) => {
+                const row = document.createElement('div');
+                row.className = 'shard-row';
+
+                const label = document.createElement('span');
+                label.className = 'shard-row-title';
+                label.innerText = group.name || `Slot ${sIdx + 1}`;
+                row.appendChild(label);
+
+                const opts = document.createElement('div');
+                opts.className = 'shard-options';
+
+                group.shards.forEach(sh => {
+                    const btn = document.createElement('div');
+                    const isSelected = (customRuneState.statShards[sIdx] === sh.id);
+                    btn.className = 'shard-btn' + (isSelected ? ' selected' : '');
+                    btn.title = `${sh.name} (${sh.desc})`;
+                    btn.innerHTML = `<img class="shard-img" src="${sh.icon}" alt="${sh.name}">`;
+                    btn.addEventListener('click', () => {
+                        customRuneState.statShards[sIdx] = sh.id;
+                        renderStatShards();
+                        validateCustomRuneState();
+                    });
+                    opts.appendChild(btn);
+                });
+
+                row.appendChild(opts);
+                statShardsSlots.appendChild(row);
+            });
+        }
+
+        function validateCustomRuneState() {
+            const name = (customRuneNameInput ? customRuneNameInput.value : '').trim();
+            customRuneState.name = name || 'Özel Rün';
+
+            let valid = true;
+            let errMsg = '';
+
+            if (!name) {
+                valid = false;
+                errMsg = 'Rün sayfası ismi boş olamaz.';
+            } else if (customRuneState.primaryStyleId === customRuneState.subStyleId) {
+                valid = false;
+                errMsg = 'Birincil ve ikincil rün ağaçları aynı olamaz.';
+            } else if (customRuneState.primaryRunes.length !== 4 || customRuneState.primaryRunes.some(id => !id)) {
+                valid = false;
+                errMsg = 'Lütfen birincil ağaçtan 1 Anahtar Rün ve 3 Küçük Rün seçin.';
+            } else if (customRuneState.secondaryRunes.length !== 2 || customRuneState.secondaryRunes.some(id => !id)) {
+                valid = false;
+                errMsg = 'Lütfen ikincil ağaçtan 2 Küçük Rün seçin.';
+            } else if (customRuneState.statShards.length !== 3 || customRuneState.statShards.some(id => !id)) {
+                valid = false;
+                errMsg = 'Lütfen 3 nitelik parçasını da seçin.';
+            }
+
+            if (!valid && customRuneValidationAlert) {
+                customRuneValidationAlert.style.display = 'block';
+                customRuneValidationAlert.innerText = errMsg;
+                if (btnSaveCustomRune) btnSaveCustomRune.disabled = true;
+                if (btnApplyCustomRune) btnApplyCustomRune.disabled = true;
+            } else if (customRuneValidationAlert) {
+                customRuneValidationAlert.style.display = 'none';
+                if (btnSaveCustomRune) btnSaveCustomRune.disabled = false;
+                if (btnApplyCustomRune) btnApplyCustomRune.disabled = false;
+            }
+            return valid;
+        }
+
+        function getFullPerkIds() {
+            return [
+                ...customRuneState.primaryRunes,
+                ...customRuneState.secondaryRunes,
+                ...customRuneState.statShards
+            ];
+        }
+
+        async function saveCustomRune() {
+            if (!validateCustomRuneState()) return;
+
+            const payload = {
+                name: customRuneState.name,
+                primaryStyleId: customRuneState.primaryStyleId,
+                subStyleId: customRuneState.subStyleId,
+                selectedPerkIds: getFullPerkIds()
+            };
+
+            try {
+                if (btnSaveCustomRune) btnSaveCustomRune.innerText = 'KAYDEDİLİYOR...';
+                const res = await fetch('/api/runes/custom', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    await fetchSavedRunes();
+                    switchCustomRuneTab('saved');
+                } else {
+                    const err = await res.json();
+                    alert(err.detail || 'Rün kaydedilemedi.');
+                }
+            } catch (exc) {
+                alert('Bağlantı hatası: ' + exc);
+            } finally {
+                if (btnSaveCustomRune) btnSaveCustomRune.innerText = '💾 RÜNÜ KAYDET';
+            }
+        }
+
+        async function applyCustomRuneDirectly() {
+            if (!validateCustomRuneState()) return;
+            const payload = {
+                name: customRuneState.name,
+                primaryStyleId: customRuneState.primaryStyleId,
+                subStyleId: customRuneState.subStyleId,
+                selectedPerkIds: getFullPerkIds()
+            };
+
+            if (btnApplyCustomRune) {
+                btnApplyCustomRune.disabled = true;
+                btnApplyCustomRune.innerText = 'UYGULANIYOR...';
+            }
+
+            try {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'APPLY_RUNES',
+                        token: sessionToken,
+                        page: payload,
+                        championId: selectedChampId
+                    }));
+                } else {
+                    const res = await fetch('/api/runes/apply', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!res.ok) {
+                        const err = await res.json();
+                        alert(err.detail || 'İstemciye uygulanamadı.');
+                    }
+                }
+                closeCustomRuneBuilderModal();
+            } catch (err) {
+                alert('Uygulama hatası: ' + err);
+            } finally {
+                if (btnApplyCustomRune) {
+                    btnApplyCustomRune.disabled = false;
+                    btnApplyCustomRune.innerText = '⚡ İSTEMCİYE UYGULA';
+                }
+            }
+        }
+
+        function renderSavedRunesList() {
+            if (!savedRunesList || !savedRunesEmpty) return;
+            savedRunesList.innerHTML = '';
+            if (savedCustomRunes.length === 0) {
+                savedRunesEmpty.style.display = 'block';
+                return;
+            }
+            savedRunesEmpty.style.display = 'none';
+
+            savedCustomRunes.forEach(page => {
+                const card = document.createElement('div');
+                card.className = 'saved-rune-card';
+                const perksSummary = Array.isArray(page.perkNames) ? page.perkNames.slice(0, 6).join(', ') : '';
+
+                card.innerHTML = `
+                    <div class="saved-rune-card-header">
+                        <span class="saved-rune-card-title">${page.name}</span>
+                        <span class="saved-rune-trees">${page.primaryTreeName} + ${page.subTreeName}</span>
+                    </div>
+                    <div class="saved-rune-perks">${perksSummary}</div>
+                    <div class="saved-rune-actions">
+                        <button class="btn-saved-apply" type="button">⚡ İstemciye Uygula</button>
+                        <button class="btn-saved-delete" type="button">🗑️ Sil</button>
+                    </div>
+                `;
+
+                const applyBtn = card.querySelector('.btn-saved-apply');
+                applyBtn.addEventListener('click', async () => {
+                    applyBtn.innerText = 'Uygulanıyor...';
+                    try {
+                        const payload = {
+                            name: page.name,
+                            primaryStyleId: page.primaryStyleId,
+                            subStyleId: page.subStyleId,
+                            selectedPerkIds: page.selectedPerkIds
+                        };
+                        if (socket && socket.readyState === WebSocket.OPEN) {
+                            socket.send(JSON.stringify({
+                                type: 'APPLY_RUNES',
+                                token: sessionToken,
+                                page: payload,
+                                championId: selectedChampId
+                            }));
+                        } else {
+                            await fetch('/api/runes/apply', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                        }
+                        closeCustomRuneBuilderModal();
+                    } catch (e) {
+                        alert('Uygulanamadı: ' + e);
+                    } finally {
+                        applyBtn.innerText = '⚡ İstemciye Uygula';
+                    }
+                });
+
+                const delBtn = card.querySelector('.btn-saved-delete');
+                delBtn.addEventListener('click', async () => {
+                    if (!confirm(`"${page.name}" rün sayfasını silmek istiyor musunuz?`)) return;
+                    try {
+                        const res = await fetch(`/api/runes/custom/${page.id}`, { method: 'DELETE' });
+                        if (res.ok) {
+                            await fetchSavedRunes();
+                        }
+                    } catch (e) {
+                        alert('Silinemedi: ' + e);
+                    }
+                });
+
+                savedRunesList.appendChild(card);
+            });
+        }
+
+        // Event Listeners for Custom Rune Builder
+        if (btnOpenCustomRuneBuilder) btnOpenCustomRuneBuilder.addEventListener('click', openCustomRuneBuilderModal);
+        if (customRuneModalClose) customRuneModalClose.addEventListener('click', closeCustomRuneBuilderModal);
+        if (customRuneModal) {
+            customRuneModal.addEventListener('click', (e) => {
+                if (e.target === customRuneModal) closeCustomRuneBuilderModal();
+            });
+        }
+        if (tabBtnBuilder) tabBtnBuilder.addEventListener('click', () => switchCustomRuneTab('builder'));
+        if (tabBtnSaved) tabBtnSaved.addEventListener('click', () => switchCustomRuneTab('saved'));
+        if (customRuneNameInput) customRuneNameInput.addEventListener('input', validateCustomRuneState);
+        if (btnSaveCustomRune) btnSaveCustomRune.addEventListener('click', saveCustomRune);
+        if (btnApplyCustomRune) btnApplyCustomRune.addEventListener('click', applyCustomRuneDirectly);
+
 
         let timerSecondsRemaining = 0;
         let timerTotalSeconds = 30;
@@ -3897,6 +5083,15 @@ class ApplyRunePageRequest(BaseModel):
     )
 
 
+class CustomRuneCreateRequest(BaseModel):
+    """Payload schema for creating and saving a custom rune page."""
+
+    name: str = Field(..., min_length=1, max_length=64, description="Rune page name")
+    primaryStyleId: int = Field(..., gt=0, description="Primary tree ID")
+    subStyleId: int = Field(..., gt=0, description="Secondary tree ID")
+    selectedPerkIds: list[int] = Field(..., min_length=9, max_length=9, description="9 perk IDs")
+
+
 
 class CreateLobbyRequest(BaseModel):
     queueId: int = Field(..., description="Target queue ID (e.g. 420 for Solo/Duo, 440 for Flex, 450 for ARAM)")
@@ -4540,6 +5735,62 @@ def create_app(
         if not success:
             raise HTTPException(status_code=400, detail="Rün sayfası istemciye uygulanamadı.")
         return {"success": True}
+
+    @app.get("/api/runes/trees")
+    async def get_rune_trees_endpoint() -> dict[str, Any]:
+        """Return the complete League of Legends rune trees catalog and stat shards."""
+        trees_list = list(RUNE_DATA["trees"].values())
+        stat_shards = list(RUNE_DATA["stat_shards"])
+        return {
+            "trees": trees_list,
+            "statShards": stat_shards,
+            "stat_shards": stat_shards,
+        }
+
+    @app.get("/api/runes/custom")
+    async def get_custom_runes_endpoint() -> dict[str, Any]:
+        """Return all user-saved custom rune pages."""
+        mgr = get_custom_rune_manager()
+        pages = [p.to_dict() for p in mgr.get_all_pages()]
+        return {
+            "pages": pages,
+            "count": len(pages),
+        }
+
+    @app.post("/api/runes/custom")
+    async def create_custom_rune_endpoint(
+        payload: CustomRuneCreateRequest,
+    ) -> dict[str, Any]:
+        """Create, validate, and persist a new custom rune page."""
+        mgr = get_custom_rune_manager()
+        valid, err = mgr.validate_rune_selection(
+            primary_style_id=payload.primaryStyleId,
+            sub_style_id=payload.subStyleId,
+            selected_perk_ids=payload.selectedPerkIds,
+            name=payload.name,
+        )
+        if not valid:
+            raise HTTPException(status_code=400, detail=err)
+
+        try:
+            saved_page = mgr.save_page({
+                "name": payload.name,
+                "primaryStyleId": payload.primaryStyleId,
+                "subStyleId": payload.subStyleId,
+                "selectedPerkIds": payload.selectedPerkIds,
+            })
+            return {"success": True, "page": saved_page.to_dict()}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.delete("/api/runes/custom/{page_id}")
+    async def delete_custom_rune_endpoint(page_id: str) -> dict[str, Any]:
+        """Delete a saved custom rune page by ID."""
+        mgr = get_custom_rune_manager()
+        deleted = mgr.delete_page(page_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Özel rün sayfası bulunamadı.")
+        return {"success": True, "id": page_id}
 
 
     # =========================================================================
@@ -5217,6 +6468,7 @@ def create_app(
 
 __all__ = [
     "ApplyRunePageRequest",
+    "CustomRuneCreateRequest",
     "ChampSelectActionRequest",
     "INDEX_HTML",
     "PairRequest",
