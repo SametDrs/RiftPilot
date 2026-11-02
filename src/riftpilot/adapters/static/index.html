@@ -39,6 +39,37 @@
 
             --nav-height: 64px;
             --transition-fast: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+
+            /* Extended Hextech design system */
+            --font-ui: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", sans-serif;
+            --font-display: "Beaufort for LOL", "Cinzel", "Trajan Pro", "Optima", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+            --font-mono: "Cascadia Code", "SF Mono", "Consolas", ui-monospace, monospace;
+
+            --gold-gradient: linear-gradient(180deg, #f0e6d2 0%, #c8aa6e 55%, #a07c3c 100%);
+            --gold-line: linear-gradient(90deg, transparent 0%, rgba(200, 170, 110, 0.65) 50%, transparent 100%);
+            --cyan-line: linear-gradient(90deg, transparent 0%, rgba(10, 200, 185, 0.7) 50%, transparent 100%);
+            --card-surface: linear-gradient(165deg, rgba(22, 33, 58, 0.92) 0%, rgba(11, 18, 34, 0.94) 60%, rgba(8, 13, 25, 0.96) 100%);
+            --card-highlight: inset 0 1px 0 rgba(240, 230, 210, 0.07);
+
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+            --shadow-md: 0 10px 30px -8px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 24px 60px -12px rgba(0, 0, 0, 0.75), 0 4px 14px rgba(0, 0, 0, 0.35);
+            --glow-gold: 0 0 0 1px rgba(200, 170, 110, 0.35), 0 0 24px rgba(200, 170, 110, 0.28);
+            --glow-cyan: 0 0 0 1px rgba(10, 200, 185, 0.4), 0 0 22px rgba(10, 200, 185, 0.3);
+            --focus-ring: 0 0 0 2px var(--bg-abyss), 0 0 0 4px var(--arcane-cyan);
+
+            --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+            --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+            --dur-fast: 160ms;
+            --dur-med: 320ms;
+            --dur-slow: 620ms;
+
+            --space-1: 4px;
+            --space-2: 8px;
+            --space-3: 12px;
+            --space-4: 16px;
+            --space-5: 24px;
+            --touch-min: 44px;
         }
 
         * {
@@ -48,7 +79,7 @@
             user-select: none;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            font-family: var(--font-ui);
         }
 
         body {
@@ -3055,18 +3086,705 @@
                 font-size: 12px;
             }
         }
+
+        /* ==========================================================
+           HEXTECH POLISH LAYER
+           Design-system refinements layered on top of the base
+           component styles: ambient backdrop, premium surfaces,
+           typography, motion, pairing screen, reconnect banner,
+           skeletons, press feedback, focus + reduced motion.
+           ========================================================== */
+
+        html { background: var(--bg-abyss); -webkit-text-size-adjust: 100%; }
+
+        body {
+            background: transparent;
+            font-feature-settings: "tnum" 0, "kern" 1;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+            padding-top: max(12px, env(safe-area-inset-top, 0px));
+        }
+
+        body.rp-pairing-open { overflow: hidden; }
+
+        /* Ambient backdrop: deep navy, faint hex lattice, slow drifting light */
+        .rp-ambient {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            overflow: hidden;
+            background:
+                radial-gradient(120% 70% at 50% -10%, #15223d 0%, rgba(12, 20, 38, 0.6) 40%, transparent 70%),
+                radial-gradient(90% 60% at 50% 115%, rgba(10, 200, 185, 0.07) 0%, transparent 60%),
+                linear-gradient(180deg, #0a1120 0%, var(--bg-abyss) 100%);
+        }
+        .rp-ambient-hex {
+            position: absolute;
+            inset: -40px;
+            opacity: 0.06;
+            background-image:
+                linear-gradient(30deg, var(--gold-2) 1px, transparent 1px),
+                linear-gradient(150deg, var(--gold-2) 1px, transparent 1px);
+            background-size: 56px 97px;
+            -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 70%);
+                    mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 70%);
+        }
+        .rp-ambient-orb {
+            position: absolute;
+            width: 70vmax;
+            height: 70vmax;
+            border-radius: 50%;
+            filter: blur(60px);
+            opacity: 0.16;
+            animation: rpDrift 26s ease-in-out infinite alternate;
+        }
+        .rp-orb-gold { background: radial-gradient(circle, rgba(200, 170, 110, 0.55), transparent 65%); top: -35vmax; left: -25vmax; }
+        .rp-orb-cyan { background: radial-gradient(circle, rgba(10, 200, 185, 0.5), transparent 65%); bottom: -40vmax; right: -30vmax; animation-delay: -13s; }
+        @keyframes rpDrift {
+            from { transform: translate3d(0, 0, 0) scale(1); }
+            to { transform: translate3d(6vmax, 4vmax, 0) scale(1.12); }
+        }
+
+        /* Header: frosted top bar with gold hairline */
+        header {
+            position: relative;
+            border-bottom: none;
+            padding: 6px 4px 14px 4px;
+        }
+        header::after {
+            content: "";
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            height: 1px;
+            background: var(--gold-line);
+            opacity: 0.8;
+        }
+        .brand-icon {
+            width: 38px;
+            height: 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 19px;
+            border-radius: 11px;
+            background: linear-gradient(160deg, rgba(10, 200, 185, 0.18), rgba(10, 200, 185, 0.03));
+            border: 1px solid rgba(10, 200, 185, 0.45);
+            box-shadow: 0 0 18px rgba(10, 200, 185, 0.25), inset 0 0 12px rgba(10, 200, 185, 0.12);
+        }
+        .brand-title {
+            font-family: var(--font-display);
+            font-size: 21px;
+            letter-spacing: 1.6px;
+            background: var(--gold-gradient);
+            -webkit-background-clip: text;
+                    background-clip: text;
+            filter: drop-shadow(0 1px 8px rgba(200, 170, 110, 0.25));
+        }
+        .lcu-subbadge { letter-spacing: 0.4px; margin-top: 1px; transition: color var(--dur-med) var(--ease-out); }
+        .status-badge {
+            min-height: 32px;
+            padding: 6px 13px;
+            letter-spacing: 0.3px;
+            background: rgba(10, 16, 30, 0.78);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: var(--shadow-sm), var(--card-highlight);
+            transition: border-color var(--dur-med) var(--ease-out), color var(--dur-med) var(--ease-out), box-shadow var(--dur-med) var(--ease-out);
+        }
+        .status-badge.connected { box-shadow: var(--shadow-sm), 0 0 16px rgba(10, 200, 185, 0.2); }
+        .status-badge.connected .status-dot { animation: rpDotPulse 2.4s ease-in-out infinite; }
+        .status-badge.error { border-color: rgba(232, 64, 87, 0.6); color: #ffb3bd; }
+        @keyframes rpDotPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(10, 200, 185, 0.55), 0 0 10px var(--arcane-cyan); }
+            50% { box-shadow: 0 0 0 5px rgba(10, 200, 185, 0), 0 0 10px var(--arcane-cyan); }
+        }
+
+        /* Premium card surfaces */
+        .phase-card,
+        .info-card,
+        .mode-selector-card,
+        .queue-timer-card,
+        .station-card,
+        .cs-top-bar,
+        .loadout-bar,
+        .runes-section {
+            background: var(--card-surface);
+            box-shadow: var(--shadow-md), var(--card-highlight);
+        }
+        .phase-card {
+            position: relative;
+            overflow: hidden;
+            border-radius: 18px;
+            padding: 26px 22px 24px;
+        }
+        .phase-card::before {
+            content: "";
+            position: absolute;
+            left: 12%; right: 12%; top: 0;
+            height: 1px;
+            background: var(--gold-line);
+        }
+        .phase-card::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(80% 60% at 50% 0%, rgba(200, 170, 110, 0.1), transparent 70%);
+        }
+        .phase-label { letter-spacing: 3px; font-size: 10.5px; opacity: 0.95; }
+        .phase-value {
+            font-family: var(--font-display);
+            font-size: 27px;
+            letter-spacing: 1px;
+            background: var(--gold-gradient);
+            -webkit-background-clip: text;
+                    background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.25;
+        }
+        .info-card { font-size: 12.5px; padding: 13px 15px; border-radius: 14px; }
+        .mode-selector-card, .station-card { border-radius: 16px; padding: 16px; }
+        .mode-selector-card { width: 100%; }
+        .mode-card-title,
+        .station-card-title,
+        .lane-section-title {
+            letter-spacing: 2px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .mode-card-title::before,
+        .station-card-title::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            transform: rotate(45deg);
+            background: var(--gold-2);
+            box-shadow: 0 0 8px rgba(200, 170, 110, 0.6);
+            flex: 0 0 auto;
+        }
+
+        /* Chips & buttons: richer states and generous touch targets */
+        .mode-chip, .lane-chip {
+            transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+                        color var(--dur-fast) var(--ease-out), box-shadow var(--dur-med) var(--ease-out),
+                        transform var(--dur-fast) var(--ease-out);
+        }
+        .mode-chip { font-size: 12.5px; letter-spacing: 0.2px; }
+        .mode-chip:active, .lane-chip:active { transform: scale(0.96); }
+        .mode-chip.active {
+            background: linear-gradient(180deg, rgba(10, 200, 185, 0.2), rgba(10, 200, 185, 0.07));
+            box-shadow: var(--glow-cyan), inset 0 1px 0 rgba(205, 250, 255, 0.12);
+            color: #bff7f1;
+        }
+        .btn-action-outline { min-height: var(--touch-min); transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+        .btn-action-outline:active { transform: scale(0.97); background: rgba(10, 200, 185, 0.2); }
+        .btn-accept { border-radius: 18px; box-shadow: var(--shadow-md), var(--card-highlight); }
+        .btn-start-queue, .btn-cancel-queue, .trade-btn-accept, .trade-btn-decline, .trade-btn-cancel,
+        .btn-apply-runes, .cs-btn-ban, .cs-btn-lock, .modal-close-btn, .custom-rune-tab {
+            min-height: var(--touch-min);
+        }
+        .queue-timer-clock, .cs-timer-badge, .ready-check-countdown, .in-game-clock, #lobbyTimerBadge {
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Bottom navigation: glass with gold hairline + active indicator */
+        nav.mobile-nav-bar {
+            height: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px));
+            background: linear-gradient(180deg, rgba(10, 16, 30, 0.82), rgba(6, 9, 16, 0.96));
+            border-top: none;
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+        }
+        nav.mobile-nav-bar::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 1px;
+            background: var(--gold-line);
+        }
+        .nav-tab-btn {
+            position: relative;
+            min-height: var(--touch-min);
+            letter-spacing: 0.3px;
+            transition: color var(--dur-med) var(--ease-out);
+        }
+        .nav-tab-btn::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: 34px;
+            height: 2px;
+            margin-left: -17px;
+            border-radius: 0 0 3px 3px;
+            background: var(--arcane-cyan);
+            box-shadow: 0 0 12px var(--arcane-cyan);
+            opacity: 0;
+            transform: scaleX(0.2);
+            transition: opacity var(--dur-med) var(--ease-out), transform var(--dur-med) var(--ease-spring);
+        }
+        .nav-tab-btn.active::before { opacity: 1; transform: scaleX(1); }
+        .nav-tab-icon { transition: transform var(--dur-med) var(--ease-spring), filter var(--dur-med) var(--ease-out); }
+        .nav-tab-btn.active .nav-tab-icon { transform: translateY(-1px) scale(1.12); }
+        .nav-tab-btn:active .nav-tab-icon { transform: scale(0.88); }
+
+        /* Entrance motion */
+        @keyframes rpRise {
+            from { opacity: 0; transform: translate3d(0, 14px, 0) scale(0.985); }
+            to { opacity: 1; transform: none; }
+        }
+        @keyframes rpFade { from { opacity: 0; } to { opacity: 1; } }
+        header { animation: rpFade var(--dur-slow) var(--ease-out) backwards; }
+        /* :where() keeps specificity at zero so component animations (pulses, slides) always win */
+        :where(#mainView > *,
+        .station-card,
+        .cs-top-bar,
+        .loadout-bar,
+        .runes-section,
+        .rune-builder-trigger-card,
+        .queue-timer-card,
+        .in-game-card,
+        .lobby-locked-card) {
+            animation: rpRise var(--dur-slow) var(--ease-out) backwards;
+        }
+        :where(#mainView > *:nth-child(2)) { animation-delay: 60ms; }
+        :where(#mainView > *:nth-child(3)) { animation-delay: 120ms; }
+        :where(#mainView > *:nth-child(4)) { animation-delay: 180ms; }
+        :where(#mainView > *:nth-child(5)) { animation-delay: 240ms; }
+        :where(#mainView > *:nth-child(n+6)) { animation-delay: 300ms; }
+        :where(.station-card:nth-child(2)) { animation-delay: 70ms; }
+        :where(.station-card:nth-child(3)) { animation-delay: 140ms; }
+        :where(.rp-panel-enter) { animation: rpFade var(--dur-med) var(--ease-out) backwards; }
+
+        /* Skeleton loading state (until the live socket reports state) */
+        @keyframes rpShimmer {
+            from { background-position: -200% 0; }
+            to { background-position: 200% 0; }
+        }
+        .rp-skeleton,
+        body.rp-booting #phaseDisplay,
+        body.rp-booting #infoMessage {
+            color: transparent !important;
+            -webkit-text-fill-color: transparent !important;
+            background: linear-gradient(90deg, rgba(148, 163, 184, 0.08) 0%, rgba(200, 170, 110, 0.18) 50%, rgba(148, 163, 184, 0.08) 100%) !important;
+            background-size: 200% 100% !important;
+            animation: rpShimmer 1.4s linear infinite !important;
+            border-radius: 10px;
+        }
+        body.rp-booting #phaseDisplay { width: 70%; margin: 4px auto 0; min-height: 30px; }
+        body.rp-booting #infoMessage { border-color: transparent; min-height: 44px; }
+
+        /* Haptic-feel press feedback */
+        @keyframes rpPressGlow {
+            0% { box-shadow: 0 0 0 0 rgba(240, 230, 210, 0.38), 0 0 0 0 rgba(10, 200, 185, 0.3); filter: brightness(1.18); }
+            100% { box-shadow: 0 0 0 10px rgba(240, 230, 210, 0), 0 0 22px 2px rgba(10, 200, 185, 0); filter: brightness(1); }
+        }
+        .rp-pressed { animation: rpPressGlow 420ms var(--ease-out); }
+
+        /* Accessible focus */
+        :focus { outline: none; }
+        button:focus-visible,
+        [role="button"]:focus-visible,
+        input:focus-visible,
+        a:focus-visible {
+            outline: none;
+            box-shadow: var(--focus-ring) !important;
+        }
+        input, textarea { user-select: text; -webkit-user-select: text; }
+
+        /* ---------- Pairing / connecting screen ---------- */
+        .rp-pairing {
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: max(24px, env(safe-area-inset-top, 0px)) 22px max(24px, env(safe-area-inset-bottom, 0px));
+            overflow-y: auto;
+            background:
+                radial-gradient(100% 60% at 50% 0%, rgba(200, 170, 110, 0.14) 0%, transparent 60%),
+                radial-gradient(80% 50% at 50% 100%, rgba(10, 200, 185, 0.12) 0%, transparent 65%),
+                linear-gradient(180deg, #0b1324 0%, #060910 100%);
+            animation: rpFade 420ms var(--ease-out) backwards;
+            transition: opacity 480ms var(--ease-out), transform 480ms var(--ease-out), filter 480ms var(--ease-out);
+        }
+        .rp-pairing[hidden] { display: none; }
+        .rp-pairing.rp-leaving { opacity: 0; transform: scale(1.04); filter: blur(6px); pointer-events: none; }
+        .rp-pairing::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.07;
+            background-image:
+                linear-gradient(30deg, var(--gold-2) 1px, transparent 1px),
+                linear-gradient(150deg, var(--gold-2) 1px, transparent 1px);
+            background-size: 48px 83px;
+            -webkit-mask-image: radial-gradient(circle at 50% 35%, #000 0%, transparent 65%);
+                    mask-image: radial-gradient(circle at 50% 35%, #000 0%, transparent 65%);
+        }
+        .rp-pairing-inner {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        .rp-pairing-inner > * { animation: rpRise 700ms var(--ease-out) backwards; }
+        .rp-pairing-inner > :nth-child(2) { animation-delay: 120ms; }
+        .rp-pairing-inner > :nth-child(3) { animation-delay: 180ms; }
+        .rp-pairing-inner > :nth-child(4) { animation-delay: 240ms; }
+        .rp-pairing-inner > :nth-child(5) { animation-delay: 300ms; }
+        .rp-pairing-inner > :nth-child(6) { animation-delay: 360ms; }
+        .rp-pairing-inner > :nth-child(n+7) { animation-delay: 420ms; }
+
+        .rp-sigil {
+            position: relative;
+            width: 168px;
+            height: 168px;
+            margin-bottom: 22px;
+        }
+        .rp-sigil-svg { width: 100%; height: 100%; overflow: visible; }
+        .rp-sigil-ring { fill: none; stroke: rgba(200, 170, 110, 0.35); stroke-width: 1; }
+        .rp-sigil-ring-dash {
+            stroke: rgba(200, 170, 110, 0.5);
+            stroke-dasharray: 2 7;
+            transform-origin: 100px 100px;
+            animation: rpSpin 40s linear infinite;
+        }
+        .rp-sigil-arc {
+            fill: none;
+            stroke: url(#rpCyanGrad);
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-dasharray: 120 383;
+            transform-origin: 100px 100px;
+            animation: rpSpin 2.4s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+            filter: drop-shadow(0 0 6px rgba(10, 200, 185, 0.8));
+        }
+        .rp-sigil-hex {
+            fill: rgba(10, 16, 30, 0.85);
+            stroke: url(#rpGoldGrad);
+            stroke-width: 2.5;
+            filter: drop-shadow(0 0 10px rgba(200, 170, 110, 0.35));
+        }
+        .rp-sigil-hex-inner { fill: none; stroke: rgba(200, 170, 110, 0.3); stroke-width: 1; }
+        .rp-sigil-bolt {
+            fill: url(#rpGoldGrad);
+            filter: drop-shadow(0 0 8px rgba(240, 230, 210, 0.45));
+            transform-origin: 100px 100px;
+            animation: rpBreath 3.2s ease-in-out infinite;
+        }
+        .rp-sigil-core {
+            position: absolute;
+            inset: 30%;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(10, 200, 185, 0.35), transparent 70%);
+            filter: blur(14px);
+            z-index: -1;
+            animation: rpBreath 3.2s ease-in-out infinite;
+        }
+        @keyframes rpSpin { to { transform: rotate(360deg); } }
+        @keyframes rpBreath {
+            0%, 100% { opacity: 0.85; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.06); }
+        }
+        .rp-pairing[data-state="waiting"] .rp-sigil-arc { animation-duration: 6s; stroke-dasharray: 60 443; }
+        .rp-pairing[data-state="error"] .rp-sigil-arc { stroke: var(--danger); filter: drop-shadow(0 0 6px rgba(232, 64, 87, 0.8)); animation-duration: 8s; }
+        .rp-pairing[data-state="error"] .rp-sigil-core { background: radial-gradient(circle, rgba(232, 64, 87, 0.3), transparent 70%); }
+
+        .rp-pairing-eyebrow {
+            font-size: 10.5px;
+            font-weight: 700;
+            letter-spacing: 3.5px;
+            color: var(--arcane-cyan);
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        .rp-pairing-title {
+            font-family: var(--font-display);
+            font-size: 30px;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            line-height: 1.15;
+            background: var(--gold-gradient);
+            -webkit-background-clip: text;
+                    background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 2px 14px rgba(200, 170, 110, 0.25));
+            margin-bottom: 10px;
+        }
+        .rp-pairing-message {
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            max-width: 330px;
+            min-height: 44px;
+            margin-bottom: 18px;
+        }
+        .rp-pairing[data-state="error"] .rp-pairing-message { color: #ffb3bd; }
+        .rp-pairing-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 36px;
+            padding: 8px 16px;
+            border-radius: var(--radius-pill);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            color: var(--gold-1);
+            background: rgba(10, 16, 30, 0.7);
+            border: 1px solid var(--card-border);
+            box-shadow: var(--shadow-sm), var(--card-highlight);
+            margin-bottom: 24px;
+        }
+        .rp-pairing-spinner, .rp-reconnect-spinner {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid rgba(10, 200, 185, 0.2);
+            border-top-color: var(--arcane-cyan);
+            animation: rpSpin 0.9s linear infinite;
+            flex: 0 0 auto;
+        }
+        .rp-pairing[data-state="waiting"] .rp-pairing-spinner {
+            border: none;
+            background: var(--gold-2);
+            width: 8px; height: 8px;
+            transform: rotate(45deg);
+            animation: rpBreath 2s ease-in-out infinite;
+        }
+        .rp-pairing[data-state="error"] .rp-pairing-spinner {
+            border: none;
+            background: var(--danger);
+            width: 8px; height: 8px;
+            box-shadow: 0 0 10px var(--danger);
+            animation: none;
+        }
+        .rp-pairing-steps {
+            list-style: none;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .rp-pairing-steps li {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            min-height: 52px;
+            padding: 10px 14px;
+            border-radius: 14px;
+            font-size: 13px;
+            line-height: 1.45;
+            color: var(--text-secondary);
+            background: var(--card-surface);
+            border: 1px solid rgba(200, 170, 110, 0.14);
+            box-shadow: var(--card-highlight);
+        }
+        .rp-pairing-steps b { color: var(--gold-1); font-weight: 700; }
+        .rp-step-num {
+            width: 28px;
+            height: 28px;
+            flex: 0 0 auto;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-display);
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--gold-1);
+            line-height: 1;
+            position: relative;
+            isolation: isolate;
+        }
+        .rp-step-num::before {
+            content: "";
+            position: absolute;
+            inset: 3px;
+            z-index: -1;
+            border: 1px solid var(--gold-2);
+            border-radius: 5px;
+            transform: rotate(45deg);
+            background: linear-gradient(160deg, rgba(200, 170, 110, 0.24), rgba(120, 90, 40, 0.1));
+            box-shadow: 0 0 10px rgba(200, 170, 110, 0.2);
+        }
+        .rp-pairing[data-state="connecting"] .rp-pairing-steps,
+        .rp-pairing[data-state="pairing"] .rp-pairing-steps { opacity: 0.55; }
+        .rp-pairing-retry {
+            min-height: 48px;
+            padding: 0 26px;
+            margin-bottom: 18px;
+            border-radius: var(--radius-pill);
+            border: 1px solid var(--arcane-cyan);
+            background: linear-gradient(180deg, rgba(10, 200, 185, 0.22), rgba(10, 200, 185, 0.06));
+            color: #cdfaff;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            cursor: pointer;
+            box-shadow: var(--glow-cyan);
+            transition: transform var(--dur-fast) var(--ease-out);
+        }
+        .rp-pairing-retry[hidden] { display: none; }
+        .rp-pairing-retry:active { transform: scale(0.96); }
+        .rp-pairing-foot {
+            font-size: 10.5px;
+            line-height: 1.6;
+            color: var(--text-muted);
+            letter-spacing: 0.3px;
+            max-width: 300px;
+        }
+
+        /* ---------- Reconnecting banner ---------- */
+        .rp-reconnect-banner {
+            position: fixed;
+            top: max(10px, env(safe-area-inset-top, 0px));
+            left: 50%;
+            z-index: 2500;
+            width: calc(100% - 24px);
+            max-width: 560px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 8px 8px 14px;
+            border-radius: 14px;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--gold-1);
+            background: linear-gradient(180deg, rgba(26, 30, 46, 0.94), rgba(12, 16, 28, 0.96));
+            border: 1px solid rgba(200, 170, 110, 0.45);
+            box-shadow: var(--shadow-lg), 0 0 24px rgba(200, 170, 110, 0.15);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            opacity: 0;
+            pointer-events: none;
+            transform: translate3d(-50%, -140%, 0);
+            transition: transform 460ms var(--ease-spring), opacity 300ms var(--ease-out), border-color var(--dur-med) var(--ease-out);
+        }
+        .rp-reconnect-banner.visible { opacity: 1; pointer-events: auto; transform: translate3d(-50%, 0, 0); }
+        .rp-reconnect-banner.success { border-color: rgba(10, 200, 185, 0.7); color: #cdfaff; }
+        .rp-reconnect-banner.success .rp-reconnect-spinner { border-color: var(--arcane-cyan); animation: none; background: var(--arcane-cyan); box-shadow: 0 0 10px var(--arcane-cyan); }
+        .rp-reconnect-banner.success .rp-reconnect-now { display: none; }
+        .rp-reconnect-text { flex: 1; line-height: 1.35; }
+        .rp-reconnect-now {
+            min-height: var(--touch-min);
+            padding: 0 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(10, 200, 185, 0.6);
+            background: rgba(10, 200, 185, 0.12);
+            color: #bff7f1;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            cursor: pointer;
+            flex: 0 0 auto;
+        }
+
+        @media (max-height: 640px) {
+            .rp-sigil { width: 120px; height: 120px; margin-bottom: 14px; }
+            .rp-pairing-title { font-size: 25px; }
+            .rp-pairing-steps li { min-height: 44px; padding: 8px 12px; }
+        }
+
+        /* ---------- Reduced motion ---------- */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.001ms !important;
+                animation-iteration-count: 1 !important;
+                animation-delay: 0ms !important;
+                transition-duration: 0.001ms !important;
+                scroll-behavior: auto !important;
+            }
+            .rp-ambient-orb { display: none; }
+            .rp-sigil-arc { animation: none !important; }
+            body.rp-booting #phaseDisplay,
+            body.rp-booting #infoMessage,
+            .rp-skeleton { animation: none !important; }
+        }
     </style>
 </head>
-<body>
+<body class="rp-booting">
+    <div class="rp-ambient" aria-hidden="true">
+        <div class="rp-ambient-hex"></div>
+        <div class="rp-ambient-orb rp-orb-gold"></div>
+        <div class="rp-ambient-orb rp-orb-cyan"></div>
+    </div>
+
+    <!-- Pairing / Connecting first screen -->
+    <section id="pairingScreen" class="rp-pairing" data-state="connecting" role="dialog" aria-modal="true" aria-labelledby="pairingTitle" aria-describedby="pairingMessage" hidden>
+        <div class="rp-pairing-inner">
+            <div class="rp-sigil" aria-hidden="true">
+                <svg class="rp-sigil-svg" viewBox="0 0 200 200" width="200" height="200">
+                    <defs>
+                        <linearGradient id="rpGoldGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#f0e6d2"/>
+                            <stop offset="55%" stop-color="#c8aa6e"/>
+                            <stop offset="100%" stop-color="#785a28"/>
+                        </linearGradient>
+                        <linearGradient id="rpCyanGrad" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="#0ac8b9" stop-opacity="0"/>
+                            <stop offset="50%" stop-color="#0ac8b9"/>
+                            <stop offset="100%" stop-color="#cdfaff"/>
+                        </linearGradient>
+                    </defs>
+                    <circle class="rp-sigil-ring rp-sigil-ring-outer" cx="100" cy="100" r="92" />
+                    <circle class="rp-sigil-ring rp-sigil-ring-dash" cx="100" cy="100" r="80" />
+                    <circle class="rp-sigil-arc" cx="100" cy="100" r="80" />
+                    <polygon class="rp-sigil-hex" points="100,40 152,70 152,130 100,160 48,130 48,70" />
+                    <polygon class="rp-sigil-hex-inner" points="100,58 136,79 136,121 100,142 64,121 64,79" />
+                    <path class="rp-sigil-bolt" d="M108 66 L80 106 L98 106 L90 136 L122 92 L103 92 Z" />
+                </svg>
+                <div class="rp-sigil-core"></div>
+            </div>
+
+            <div class="rp-pairing-eyebrow">RIFTPILOT · HEXTECH LINK</div>
+            <h1 id="pairingTitle" class="rp-pairing-title">Rift’e Bağlanılıyor</h1>
+            <p id="pairingMessage" class="rp-pairing-message" aria-live="polite">Masaüstü uygulamasına bağlanılıyor…</p>
+
+            <div class="rp-pairing-state" role="status">
+                <span class="rp-pairing-spinner" aria-hidden="true"></span>
+                <span id="pairingStateLabel">Bağlanıyor</span>
+            </div>
+
+            <ol class="rp-pairing-steps" aria-label="Eşleştirme adımları">
+                <li><span class="rp-step-num">1</span><span>Bilgisayarında <b>RiftPilot</b> masaüstü uygulamasını aç.</span></li>
+                <li><span class="rp-step-num">2</span><span>Telefon kameranla ekrandaki <b>QR kodu</b> tara.</span></li>
+                <li><span class="rp-step-num">3</span><span>Bağlantı kurulunca maçlarını <b>buradan yönet</b>.</span></li>
+            </ol>
+
+            <button id="pairingRetryBtn" class="rp-pairing-retry" type="button" hidden aria-label="Şimdi yeniden bağlanmayı dene">Şimdi Yeniden Dene</button>
+
+            <div class="rp-pairing-foot">Yalnızca resmi League istemci API’si kullanılır · Güvenli tek kullanımlık eşleştirme</div>
+        </div>
+    </section>
+
+    <!-- Reconnecting banner -->
+    <div id="reconnectBanner" class="rp-reconnect-banner" role="status" aria-live="polite" aria-hidden="true">
+        <span class="rp-reconnect-spinner" aria-hidden="true"></span>
+        <span id="reconnectBannerText" class="rp-reconnect-text">Yeniden bağlanılıyor…</span>
+        <button id="reconnectNowBtn" class="rp-reconnect-now" type="button" aria-label="Şimdi yeniden bağlan">Şimdi Dene</button>
+    </div>
+
     <header>
         <div class="brand">
-            <span class="brand-icon">⚡</span>
+            <span class="brand-icon" aria-hidden="true">⚡</span>
             <div>
                 <div class="brand-title">RiftPilot</div>
-                <div id="lcuBadge" class="lcu-subbadge">○ LoL Bekleniyor</div>
+                <div id="lcuBadge" class="lcu-subbadge" role="status" aria-live="polite">○ LoL Bekleniyor</div>
             </div>
         </div>
-        <div id="statusBadge" class="status-badge">
+        <div id="statusBadge" class="status-badge" role="status" aria-live="polite" aria-label="Sunucu bağlantı durumu">
             <span class="status-dot"></span>
             <span id="statusText">Bağlanıyor...</span>
         </div>
@@ -3521,17 +4239,17 @@
     </div>
 
     <!-- Mobile Bottom Navigation Bar (LeagueCompanion One-Handed Ergonomics) -->
-    <nav class="mobile-nav-bar">
-        <button id="navTabGame" class="nav-tab-btn active">
-            <span class="nav-tab-icon">🎮</span>
+    <nav class="mobile-nav-bar" aria-label="Ana gezinme">
+        <button id="navTabGame" class="nav-tab-btn active" type="button" aria-label="Oyun sekmesi" aria-current="page">
+            <span class="nav-tab-icon" aria-hidden="true">🎮</span>
             <span>Oyun</span>
         </button>
-        <button id="navTabLoadout" class="nav-tab-btn">
-            <span class="nav-tab-icon">⚡</span>
+        <button id="navTabLoadout" class="nav-tab-btn" type="button" aria-label="Rün ve büyü sekmesi">
+            <span class="nav-tab-icon" aria-hidden="true">⚡</span>
             <span>Rün & Büyü</span>
         </button>
-        <button id="navTabStation" class="nav-tab-btn">
-            <span class="nav-tab-icon">📡</span>
+        <button id="navTabStation" class="nav-tab-btn" type="button" aria-label="İstasyon sekmesi">
+            <span class="nav-tab-icon" aria-hidden="true">📡</span>
             <span>İstasyon</span>
         </button>
     </nav>
@@ -3638,6 +4356,62 @@
         let socket = null;
         let sessionToken = localStorage.getItem('riftpilot_session_token');
 
+        // ===== Authenticated API helper =====
+        // Every REST call to /api/* goes through apiFetch(): it attaches
+        // "Authorization: Bearer <sessionToken>" (except for /api/pair) and
+        // routes HTTP 401 responses to a clean re-pairing flow.
+        const RP_TOKEN_KEY = 'riftpilot_session_token';
+        const RP_PUBLIC_API = ['/api/pair'];
+
+        function apiPathOf(input) {
+            try {
+                const raw = (typeof input === 'string') ? input : (input && input.url) || '';
+                return new URL(raw, window.location.href).pathname;
+            } catch (e) {
+                return '';
+            }
+        }
+
+        async function apiFetch(input, init) {
+            const opts = Object.assign({}, init || {});
+            const path = apiPathOf(input);
+            const isPublic = RP_PUBLIC_API.includes(path);
+            const headers = new Headers(opts.headers || {});
+            const token = sessionToken || localStorage.getItem(RP_TOKEN_KEY);
+            if (!isPublic && token) {
+                headers.set('Authorization', 'Bearer ' + token);
+                headers.set('X-Session-Token', token);
+            }
+            opts.headers = headers;
+            const resp = await fetch(input, opts);
+            // Only expire the session if the token that failed is still the active one
+            // (avoids wiping a freshly paired token because of a stale in-flight call).
+            if (resp.status === 401 && !isPublic && path.startsWith('/api/') && token && token === sessionToken) {
+                handleAuthExpired('Oturumunun süresi doldu veya cihaz yetkisi kaldırıldı. Lütfen masaüstündeki QR kodu yeniden tarayın.');
+            }
+            return resp;
+        }
+
+        // ===== WebSocket reconnect state (exponential backoff + jitter) =====
+        const WS_BACKOFF_BASE_MS = 1000;
+        const WS_BACKOFF_MAX_MS = 15000;
+        let wsReconnectAttempt = 0;
+        let wsReconnectTimer = null;
+        let wsCountdownTimer = null;
+        let wsHasConnectedOnce = false;
+        let wsAuthExpired = false;
+
+        function computeBackoffDelay(attempt) {
+            const exp = Math.min(WS_BACKOFF_MAX_MS, WS_BACKOFF_BASE_MS * Math.pow(2, attempt));
+            const jitter = exp * (0.75 + Math.random() * 0.5); // +/-25%
+            return Math.round(Math.min(WS_BACKOFF_MAX_MS, Math.max(WS_BACKOFF_BASE_MS * 0.75, jitter)));
+        }
+
+        function clearReconnectTimers() {
+            if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+            if (wsCountdownTimer) { clearInterval(wsCountdownTimer); wsCountdownTimer = null; }
+        }
+
         // State variables
         let currentChampSelect = null;
         let currentModeContext = null;
@@ -3683,6 +4457,19 @@
             navTabGame.classList.toggle('active', tabName === 'game');
             navTabLoadout.classList.toggle('active', tabName === 'loadout');
             navTabStation.classList.toggle('active', tabName === 'station');
+
+            [[navTabGame, 'game'], [navTabLoadout, 'loadout'], [navTabStation, 'station']].forEach(([btn, name]) => {
+                if (!btn) return;
+                if (name === tabName) btn.setAttribute('aria-current', 'page');
+                else btn.removeAttribute('aria-current');
+            });
+            // Replay the panel entrance so tab changes feel fluid
+            const activePanel = tabName === 'game' ? gameTabPanel : (tabName === 'loadout' ? loadoutTabPanel : stationView);
+            if (activePanel) {
+                activePanel.classList.remove('rp-panel-enter');
+                void activePanel.offsetWidth;
+                activePanel.classList.add('rp-panel-enter');
+            }
         }
 
         navTabGame.addEventListener('click', () => switchTab('game'));
@@ -3934,7 +4721,7 @@
         async function fetchRuneTrees() {
             if (runeTreesCatalog) return runeTreesCatalog;
             try {
-                const res = await fetch('/api/runes/trees');
+                const res = await apiFetch('/api/runes/trees');
                 if (res.ok) {
                     runeTreesCatalog = await res.json();
                 }
@@ -3946,7 +4733,7 @@
 
         async function fetchSavedRunes() {
             try {
-                const res = await fetch('/api/runes/custom');
+                const res = await apiFetch('/api/runes/custom');
                 if (res.ok) {
                     const data = await res.json();
                     savedCustomRunes = data.pages || [];
@@ -4244,7 +5031,7 @@
 
             try {
                 if (btnSaveCustomRune) btnSaveCustomRune.innerText = 'KAYDEDİLİYOR...';
-                const res = await fetch('/api/runes/custom', {
+                const res = await apiFetch('/api/runes/custom', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -4286,7 +5073,7 @@
                         championId: selectedChampId
                     }));
                 } else {
-                    const res = await fetch('/api/runes/apply', {
+                    const res = await apiFetch('/api/runes/apply', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
@@ -4351,7 +5138,7 @@
                                 championId: selectedChampId
                             }));
                         } else {
-                            await fetch('/api/runes/apply', {
+                            await apiFetch('/api/runes/apply', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify(payload)
@@ -4369,7 +5156,7 @@
                 delBtn.addEventListener('click', async () => {
                     if (!confirm(`"${page.name}" rün sayfasını silmek istiyor musunuz?`)) return;
                     try {
-                        const res = await fetch(`/api/runes/custom/${page.id}`, { method: 'DELETE' });
+                        const res = await apiFetch(`/api/runes/custom/${page.id}`, { method: 'DELETE' });
                         if (res.ok) {
                             await fetchSavedRunes();
                         }
@@ -5443,7 +6230,7 @@
                     headers['X-Session-Token'] = sessionToken;
                     headers['Authorization'] = 'Bearer ' + sessionToken;
                 }
-                fetch('/api/lobby/preferences', {
+                apiFetch('/api/lobby/preferences', {
                     method: 'POST',
                     headers: headers,
                     body: JSON.stringify({
@@ -5550,7 +6337,7 @@
                         headers['X-Session-Token'] = sessionToken;
                         headers['Authorization'] = 'Bearer ' + sessionToken;
                     }
-                    fetch('/api/lobby/matchmaking/start', {
+                    apiFetch('/api/lobby/matchmaking/start', {
                         method: 'POST',
                         headers: headers,
                         body: JSON.stringify({
@@ -5591,7 +6378,7 @@
                         token: sessionToken
                     }));
                 } else {
-                    fetch('/api/lobby/matchmaking/cancel', {
+                    apiFetch('/api/lobby/matchmaking/cancel', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' }
                     }).catch(() => {});
@@ -5721,8 +6508,127 @@
             }
         });
 
+        // ===== Pairing / connection screen & reconnect banner =====
+        const pairingScreen = document.getElementById('pairingScreen');
+        const pairingTitle = document.getElementById('pairingTitle');
+        const pairingMessage = document.getElementById('pairingMessage');
+        const pairingStateLabel = document.getElementById('pairingStateLabel');
+        const pairingRetryBtn = document.getElementById('pairingRetryBtn');
+        const reconnectBanner = document.getElementById('reconnectBanner');
+        const reconnectBannerText = document.getElementById('reconnectBannerText');
+        const reconnectNowBtn = document.getElementById('reconnectNowBtn');
+
+        const PAIRING_STATES = {
+            waiting: { title: 'Cihazını Eşleştir', label: 'Eşleştirme Bekleniyor' },
+            pairing: { title: 'Eşleştiriliyor', label: 'Güvenli el sıkışma' },
+            connecting: { title: 'Rift’e Bağlanılıyor', label: 'Bağlanıyor' },
+            error: { title: 'Yeniden Eşleştir', label: 'Eşleştirme Gerekli' }
+        };
+
+        function showPairingScreen(state, message) {
+            if (!pairingScreen) return;
+            const cfg = PAIRING_STATES[state] || PAIRING_STATES.waiting;
+            pairingScreen.dataset.state = state;
+            if (pairingTitle) pairingTitle.innerText = cfg.title;
+            if (pairingStateLabel) pairingStateLabel.innerText = cfg.label;
+            if (pairingMessage && message) pairingMessage.innerText = message;
+            if (pairingRetryBtn) pairingRetryBtn.hidden = (state !== 'connecting' || !sessionToken || !wsReconnectTimer);
+            pairingScreen.classList.remove('rp-leaving');
+            pairingScreen.hidden = false;
+            pairingScreen.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('rp-pairing-open');
+        }
+
+        function hidePairingScreen() {
+            if (!pairingScreen || pairingScreen.hidden) return;
+            document.body.classList.remove('rp-pairing-open');
+            pairingScreen.classList.add('rp-leaving');
+            pairingScreen.setAttribute('aria-hidden', 'true');
+            const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            setTimeout(() => {
+                if (pairingScreen.classList.contains('rp-leaving')) {
+                    pairingScreen.hidden = true;
+                    pairingScreen.classList.remove('rp-leaving');
+                }
+            }, reduce ? 0 : 520);
+        }
+
+        function showReconnectBanner(text) {
+            if (!reconnectBanner) return;
+            if (reconnectBannerText) reconnectBannerText.innerText = text;
+            reconnectBanner.classList.add('visible');
+            reconnectBanner.setAttribute('aria-hidden', 'false');
+        }
+
+        function hideReconnectBanner() {
+            if (!reconnectBanner) return;
+            reconnectBanner.classList.remove('visible');
+            reconnectBanner.setAttribute('aria-hidden', 'true');
+        }
+
+        function handleAuthExpired(message) {
+            wsAuthExpired = true;
+            clearReconnectTimers();
+            hideReconnectBanner();
+            localStorage.removeItem(RP_TOKEN_KEY);
+            sessionToken = null;
+            if (socket) {
+                const s = socket;
+                socket = null;
+                try { s.close(); } catch (e) {}
+            }
+            setStatus('Yetkisiz Oturum', 'error');
+            if (infoMessage) infoMessage.innerText = 'Lütfen masaüstündeki QR kodu tarayarak bağlanın.';
+            showPairingScreen('error', message || 'Oturum sona erdi. Masaüstündeki QR kodu tarayarak yeniden bağlan.');
+        }
+
+        function scheduleReconnect() {
+            if (wsAuthExpired || !sessionToken) return;
+            clearReconnectTimers();
+            const delay = computeBackoffDelay(wsReconnectAttempt);
+            wsReconnectAttempt += 1;
+            const deadline = Date.now() + delay;
+            const render = () => {
+                const secs = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+                const txt = secs > 0 ? `Bağlantı koptu — ${secs} sn içinde yeniden deneniyor…` : 'Yeniden bağlanılıyor…';
+                if (wsHasConnectedOnce) {
+                    showReconnectBanner(txt);
+                } else {
+                    showPairingScreen('connecting', 'Masaüstü uygulamasına ulaşılamıyor. ' + txt);
+                }
+            };
+            wsReconnectTimer = setTimeout(attemptReconnect, delay);
+            wsCountdownTimer = setInterval(render, 1000);
+            render();
+        }
+
+        function attemptReconnect() {
+            clearReconnectTimers();
+            if (wsAuthExpired || !sessionToken) return;
+            if (wsHasConnectedOnce) showReconnectBanner('Yeniden bağlanılıyor…');
+            // Lightweight auth/health probe first: a 401 routes to re-pairing via apiFetch,
+            // a network failure backs off without hammering the WebSocket endpoint.
+            apiFetch('/api/lcu/status', { cache: 'no-store' })
+                .then(r => { if (r.status !== 401) connectWebSocket(); })
+                .catch(() => scheduleReconnect());
+        }
+
+        if (reconnectNowBtn) {
+            reconnectNowBtn.addEventListener('click', () => {
+                wsReconnectAttempt = 0;
+                attemptReconnect();
+            });
+        }
+        if (pairingRetryBtn) {
+            pairingRetryBtn.addEventListener('click', () => {
+                wsReconnectAttempt = 0;
+                attemptReconnect();
+            });
+        }
+
         async function autoPair(ott) {
             setStatus('Eşleştiriliyor...', '');
+            showPairingScreen('pairing', 'QR kod doğrulanıyor, cihazın güvenle eşleştiriliyor…');
             try {
                 let clientInstanceId = localStorage.getItem('riftpilot_client_id');
                 if (!clientInstanceId) {
@@ -5733,7 +6639,7 @@
                 const deviceName = /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'iPhone' :
                                    /Android/i.test(navigator.userAgent) ? 'Android Cihaz' : 'Mobil Tarayıcı';
 
-                const resp = await fetch('/api/pair', {
+                const resp = await apiFetch('/api/pair', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -5747,15 +6653,20 @@
                     const data = await resp.json();
                     sessionToken = data.session_token || data.sessionToken;
                     localStorage.setItem('riftpilot_session_token', sessionToken);
+                    wsAuthExpired = false;
+                    wsReconnectAttempt = 0;
                     window.history.replaceState({}, document.title, window.location.pathname);
+                    showPairingScreen('connecting', 'Eşleşme başarılı! Canlı bağlantı kuruluyor…');
                     connectWebSocket();
                 } else {
                     setStatus('Eşleşme Başarısız', 'error');
                     infoMessage.innerText = 'Geçersiz veya süresi dolmuş QR kod. Masaüstünden yenileyin.';
+                    showPairingScreen('error', 'Geçersiz veya süresi dolmuş QR kod. Masaüstünden yenileyin.');
                 }
             } catch (err) {
                 setStatus('Bağlantı Hatası', 'error');
                 infoMessage.innerText = 'Sunucuya bağlanılamadı: ' + err.message;
+                showPairingScreen('error', 'Sunucuya bağlanılamadı: ' + err.message);
             }
         }
 
@@ -5763,15 +6674,42 @@
             if (!sessionToken) {
                 setStatus('Yetkilendirme Gerekli', 'error');
                 infoMessage.innerText = 'Lütfen masaüstündeki QR kodu tarayarak bağlanın.';
+                showPairingScreen('waiting', 'Masaüstündeki QR kodu telefon kameranla tarayarak bağlan.');
                 return;
+            }
+            if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+                return;
+            }
+            clearReconnectTimers();
+            wsAuthExpired = false;
+            if (!wsHasConnectedOnce) {
+                setStatus('Bağlanıyor...', '');
             }
 
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(sessionToken)}`;
-            socket = new WebSocket(wsUrl);
+            const thisSocket = new WebSocket(wsUrl);
+            socket = thisSocket;
 
             socket.onopen = () => {
+                if (socket !== thisSocket) return;
+                wsReconnectAttempt = 0;
+                clearReconnectTimers();
+                const wasReconnect = wsHasConnectedOnce;
+                wsHasConnectedOnce = true;
                 setStatus('Bağlandı', 'connected');
+                hidePairingScreen();
+                if (wasReconnect && reconnectBanner && reconnectBanner.classList.contains('visible')) {
+                    showReconnectBanner('Bağlantı yeniden kuruldu');
+                    reconnectBanner.classList.add('success');
+                    setTimeout(() => {
+                        reconnectBanner.classList.remove('success');
+                        hideReconnectBanner();
+                    }, 1400);
+                } else {
+                    hideReconnectBanner();
+                }
+                document.body.classList.remove('rp-booting');
                 try {
                     socket.send(JSON.stringify({ type: 'GET_STATE', token: sessionToken }));
                 } catch (e) {}
@@ -5870,10 +6808,9 @@
                         }
                         updateActionButtonsFromState();
                     } else if (data.type === 'REVOKED' || data.type === 'UNAUTHORIZED') {
-                        localStorage.removeItem('riftpilot_session_token');
+                        handleAuthExpired('Bu cihazın yetkisi masaüstünden kaldırıldı. Tekrar bağlanmak için QR kodu yeniden tarayın.');
                         setStatus('Yetki İptal Edildi', 'error');
                         infoMessage.innerText = 'Masaüstünden yetki sonlandırıldı.';
-                        if (socket) socket.close();
                     }
                 } catch (e) {
                     console.log('WS msg:', event.data);
@@ -5881,16 +6818,16 @@
             };
 
             socket.onclose = (event) => {
-                if (event.code === 4001) {
-                    localStorage.removeItem('riftpilot_session_token');
-                    setStatus('Yetkisiz Oturum', 'error');
-                } else {
-                    setStatus('Bağlantı Koptu', 'error');
-                    setTimeout(() => {
-                        if (localStorage.getItem('riftpilot_session_token')) {
-                            connectWebSocket();
-                        }
-                    }, 2500);
+                if (socket !== thisSocket && socket !== null) return; // superseded socket
+                if (event.code === 4401 || event.code === 4001) {
+                    handleAuthExpired('Oturum doğrulanamadı. Masaüstündeki QR kodu tarayarak yeniden eşleştir.');
+                    return;
+                }
+                if (wsAuthExpired) return;
+                socket = null;
+                setStatus('Bağlantı Koptu', 'error');
+                if (localStorage.getItem(RP_TOKEN_KEY)) {
+                    scheduleReconnect();
                 }
             };
         }
@@ -5909,8 +6846,10 @@
             if (!document.hidden) {
                 refreshActiveTimers();
                 if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
-                    if (localStorage.getItem('riftpilot_session_token')) {
-                        connectWebSocket();
+                    if (localStorage.getItem('riftpilot_session_token') && !wsAuthExpired) {
+                        // Waking up: skip the remaining backoff and try right away.
+                        wsReconnectAttempt = 0;
+                        attemptReconnect();
                     }
                 } else if (socket.readyState === WebSocket.OPEN) {
                     try {
@@ -5950,7 +6889,7 @@
                 }
                 if (!wsSent) {
                     try {
-                        const resp = await fetch('/api/match/accept', {
+                        const resp = await apiFetch('/api/match/accept', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ token: sessionToken })
@@ -5990,7 +6929,7 @@
                 }
                 if (!wsSent) {
                     try {
-                        await fetch('/api/match/decline', {
+                        await apiFetch('/api/match/decline', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ token: sessionToken })
@@ -6004,7 +6943,7 @@
         }
 
         function fetchInitialLcuStatus() {
-            fetch('/api/lcu/status')
+            apiFetch('/api/lcu/status')
                 .then(r => r.json())
                 .then(data => {
                     if (data && data.connected !== undefined) {
@@ -6016,7 +6955,6 @@
                 })
                 .catch(() => {});
         }
-        fetchInitialLcuStatus();
 
         // Initialize: Parse ?ott= query parameter or reuse stored token
         const urlParams = new URLSearchParams(window.location.search);
@@ -6024,11 +6962,34 @@
         if (ottParam) {
             autoPair(ottParam);
         } else if (sessionToken) {
+            showPairingScreen('connecting', 'Kayıtlı oturumun bulundu, masaüstüne bağlanılıyor…');
+            fetchInitialLcuStatus();
             connectWebSocket();
         } else {
             setStatus('Eşleştirme Bekleniyor', '');
             infoMessage.innerText = 'Cihazı bağlamak için masaüstü QR kodunu tarayın.';
+            showPairingScreen('waiting', 'Masaüstündeki RiftPilot penceresinde görünen QR kodu telefon kameranla tara.');
         }
+
+        // ===== Haptic-feel press feedback for every button =====
+        (function installPressFeedback() {
+            const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            document.addEventListener('pointerdown', (ev) => {
+                const btn = ev.target && ev.target.closest ? ev.target.closest('button, .rp-pressable') : null;
+                if (!btn || btn.disabled) return;
+                btn.classList.remove('rp-pressed');
+                void btn.offsetWidth; // restart the glow animation
+                btn.classList.add('rp-pressed');
+                if (!reduce && navigator.vibrate) {
+                    try { navigator.vibrate(8); } catch (e) {}
+                }
+            }, { passive: true });
+            document.addEventListener('animationend', (ev) => {
+                if (ev.animationName === 'rpPressGlow' && ev.target && ev.target.classList) {
+                    ev.target.classList.remove('rp-pressed');
+                }
+            });
+        })();
     </script>
 </body>
 </html>
