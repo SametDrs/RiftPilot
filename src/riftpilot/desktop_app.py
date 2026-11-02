@@ -57,6 +57,28 @@ def get_lan_ip() -> str:
     return ip
 
 
+def _ensure_stdio() -> None:
+    """Give windowed (console=False) builds real stdout/stderr streams.
+
+    PyInstaller's windowed bootloader leaves ``sys.stdout``/``sys.stderr`` as ``None``,
+    which crashes uvicorn's log formatter (``isatty()`` on ``None``). Redirect both to a
+    log file under ``%LOCALAPPDATA%\\RiftPilot`` (falling back to ``os.devnull``).
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    stream = None
+    try:
+        log_dir = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "RiftPilot")
+        os.makedirs(log_dir, exist_ok=True)
+        stream = open(os.path.join(log_dir, "riftpilot.log"), "a", encoding="utf-8", buffering=1)
+    except OSError:
+        stream = open(os.devnull, "w", encoding="utf-8")
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+
+
 def run_desktop_app(
     host: str = "0.0.0.0",
     port: int = 8000,
@@ -78,6 +100,8 @@ def run_desktop_app(
     Returns:
         Exit code (0 for success, non-zero for error).
     """
+    _ensure_stdio()
+
     # Configure logging
     log_level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(
