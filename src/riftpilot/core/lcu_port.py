@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         LobbyData,
         MatchmakingSearchState,
     )
+    from riftpilot.core.post_game import EndOfGameStats, HonorBallot
     from riftpilot.core.runes_spells import RecommendedRunePage, RunePage, SummonerSpell
 
 
@@ -237,6 +238,36 @@ class ILcuPort(ABC):
     ) -> list[RecommendedRunePage]:
         """Fetch official recommended rune pages from LCU for the champion (no fake data)."""
         ...
+
+
+
+    # ========================================================================
+    # Post-Game Stats & Honor Contract (Milestone 5)
+    # ========================================================================
+
+    async def get_end_of_game_stats(self) -> EndOfGameStats | None:
+        """Retrieve match summary and player statistics for the last game."""
+        return None
+
+    async def get_honor_ballot(self) -> HonorBallot | None:
+        """Retrieve eligible teammates for post-game honor voting."""
+        return None
+
+    async def honor_player(self, summoner_id: int, honor_type: str) -> bool:
+        """Cast honor vote for a teammate."""
+        return False
+
+    def subscribe_end_of_game(
+        self, callback: Callable[[EndOfGameStats | None], Any]
+    ) -> None:
+        """Register a callback for post-game stats updates."""
+        pass
+
+    def unsubscribe_end_of_game(
+        self, callback: Callable[[EndOfGameStats | None], Any]
+    ) -> bool:
+        """Unregister a post-game stats update callback."""
+        return False
 
 
 __all__ = [

@@ -2374,6 +2374,11 @@ class SetPositionPreferencesRequest(BaseModel):
     second: str = Field(..., description="Second position preference")
 
 
+
+class HonorPlayerRequest(BaseModel):
+    summonerId: int = Field(..., gt=0, description="Summoner ID to honor")
+    honorCategory: str = Field(..., description="HEART, SHOTCALLER, or COOL")
+
 class BenchSwapRequest(BaseModel):
     championId: int = Field(..., gt=0, description="Champion ID on the bench to swap with")
 
@@ -2921,6 +2926,35 @@ def create_app(
         trades = await lcu_adapter.get_trades()
         return {"trades": [t.model_dump() for t in trades]}
 
+
+    # =========================================================================
+    # Post-Game Stats & Honor Endpoints (Milestone 5)
+    # =========================================================================
+
+    @app.get("/api/game/eog")
+    async def get_eog_endpoint() -> dict[str, Any]:
+        """Retrieve end-of-game match summary and scoreboard."""
+        if lcu_adapter is None:
+            return {"stats": None}
+        stats = await lcu_adapter.get_end_of_game_stats()
+        return {"stats": stats.model_dump() if stats else None}
+
+    @app.get("/api/game/honor/ballot")
+    async def get_honor_ballot_endpoint() -> dict[str, Any]:
+        """Retrieve eligible teammates for post-game honor voting."""
+        if lcu_adapter is None:
+            return {"ballot": None}
+        ballot = await lcu_adapter.get_honor_ballot()
+        return {"ballot": ballot.model_dump() if ballot else None}
+
+    @app.post("/api/game/honor")
+    async def honor_player_endpoint(payload: HonorPlayerRequest) -> dict[str, Any]:
+        """Cast honor vote for a teammate."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await lcu_adapter.honor_player(payload.summonerId, payload.honorCategory)
+        return {"success": success, "summonerId": payload.summonerId, "category": payload.honorCategory}
+
     # =========================================================================
     # WebSocket Route
     # =========================================================================
@@ -3193,6 +3227,28 @@ def create_app(
                     trade_id = int(data.get("tradeId", 0) or 0)
                     success = await lcu_adapter.decline_trade(trade_id) if lcu_adapter else False
                     await websocket.send_json({"type": "TRADE_RESULT", "tradeId": trade_id, "success": success})
+                elif cmd_type == "GET_EOG_STATS":
+                    eog = await lcu_adapter.get_end_of_game_stats() if lcu_adapter else None
+                    await websocket.send_json({
+                        "type": "EOG_STATS_UPDATE",
+                        "stats": eog.model_dump() if eog else None,
+                    })
+                elif cmd_type == "GET_HONOR_BALLOT":
+                    ballot = await lcu_adapter.get_honor_ballot() if lcu_adapter else None
+                    await websocket.send_json({
+                        "type": "HONOR_BALLOT_UPDATE",
+                        "ballot": ballot.model_dump() if ballot else None,
+                    })
+                elif cmd_type == "HONOR_PLAYER":
+                    s_id = int(data.get("summonerId", 0) or 0)
+                    cat = str(data.get("honorCategory", "HEART") or "HEART")
+                    success = await lcu_adapter.honor_player(s_id, cat) if lcu_adapter else False
+                    await websocket.send_json({
+                        "type": "HONOR_RESULT",
+                        "summonerId": s_id,
+                        "category": cat,
+                        "success": bool(success),
+                    })
                 elif cmd_type == "PING":
                     await websocket.send_json({"type": "PONG"})
                 elif cmd_type == "GET_STATE":
