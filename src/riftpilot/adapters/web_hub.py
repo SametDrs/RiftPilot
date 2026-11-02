@@ -1457,6 +1457,483 @@ INDEX_HTML = """<!DOCTYPE html>
             .phase-card { padding: 14px; }
             .btn-accept { height: 60px; }
         }
+
+        /* Ready Check Modal Overlay (#readyCheckModal) */
+        .ready-check-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            background: rgba(6, 9, 16, 0.88);
+            animation: modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .ready-check-card {
+            position: relative;
+            background: radial-gradient(circle at 50% 20%, #152238 0%, #0a111e 90%);
+            border: 2px solid var(--gold-2);
+            border-radius: var(--radius-lg);
+            padding: 26px 20px;
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            box-shadow: 0 0 50px rgba(200, 170, 110, 0.45), 0 20px 40px rgba(0, 0, 0, 0.8);
+            animation: modalPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .ready-check-glow {
+            position: absolute;
+            top: -50px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 220px;
+            height: 100px;
+            background: radial-gradient(ellipse, rgba(10, 200, 185, 0.4) 0%, transparent 75%);
+            pointer-events: none;
+        }
+
+        .ready-check-icon {
+            font-size: 34px;
+            margin-bottom: 6px;
+            filter: drop-shadow(0 0 12px var(--arcane-cyan));
+            animation: bounce-icon 1.2s infinite ease-in-out;
+        }
+
+        @keyframes bounce-icon {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+
+        .ready-check-title {
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            color: var(--gold-1);
+            text-shadow: 0 0 16px rgba(240, 230, 210, 0.6);
+            margin-bottom: 14px;
+        }
+
+        .ready-check-timer-wrapper {
+            position: relative;
+            width: 84px;
+            height: 84px;
+            margin: 4px 0 14px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .ready-check-timer-ring {
+            transform: rotate(-90deg);
+        }
+
+        .ring-track {
+            fill: none;
+            stroke: rgba(200, 170, 110, 0.15);
+            stroke-width: 6;
+        }
+
+        .ring-bar {
+            fill: none;
+            stroke: var(--gold-2);
+            stroke-width: 6;
+            stroke-linecap: round;
+            stroke-dasharray: 226;
+            stroke-dashoffset: 0;
+            transition: stroke-dashoffset 1s linear, stroke 0.3s ease;
+            filter: drop-shadow(0 0 6px var(--gold-2));
+        }
+
+        .ready-check-countdown {
+            position: absolute;
+            font-size: 26px;
+            font-weight: 800;
+            color: var(--gold-1);
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 0 10px rgba(240, 230, 210, 0.5);
+        }
+
+        .ready-check-status {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            min-height: 20px;
+        }
+
+        .ready-check-actions {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .btn-ready-accept {
+            width: 100%;
+            height: 56px;
+            min-height: 44px;
+            min-width: 44px;
+            border-radius: var(--radius-md);
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            border: 2px solid #f0e6d2;
+            background: linear-gradient(180deg, #c8aa6e 0%, #785a28 100%);
+            color: #060910;
+            cursor: pointer;
+            box-shadow: 0 0 25px rgba(200, 170, 110, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            touch-action: manipulation;
+            transition: all var(--transition-fast);
+            animation: pulse-ready-btn 1.2s infinite alternate ease-in-out;
+            box-sizing: border-box;
+        }
+
+        @keyframes pulse-ready-btn {
+            0% { transform: scale(1); box-shadow: 0 0 20px rgba(200, 170, 110, 0.6); }
+            100% { transform: scale(1.02); box-shadow: 0 0 32px rgba(200, 170, 110, 0.95); }
+        }
+
+        .btn-ready-accept:active {
+            transform: scale(0.97);
+        }
+
+        .btn-ready-accept.accepted {
+            background: linear-gradient(180deg, #00b060 0%, #006030 100%);
+            color: #ffffff;
+            border-color: var(--success);
+            box-shadow: 0 0 25px rgba(0, 255, 136, 0.6);
+            animation: none;
+        }
+
+        .btn-ready-accept:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            animation: none;
+            transform: none;
+        }
+
+        .btn-ready-decline {
+            width: 100%;
+            height: 44px;
+            min-height: 44px;
+            min-width: 44px;
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border: 1px solid rgba(232, 64, 87, 0.4);
+            background: rgba(232, 64, 87, 0.1);
+            color: #ff7588;
+            cursor: pointer;
+            touch-action: manipulation;
+            transition: all var(--transition-fast);
+            box-sizing: border-box;
+        }
+
+        .btn-ready-decline:hover {
+            background: rgba(232, 64, 87, 0.2);
+            border-color: rgba(232, 64, 87, 0.7);
+        }
+
+        .btn-ready-decline:active {
+            transform: scale(0.97);
+        }
+
+        .btn-ready-decline:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        @keyframes modalFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes modalPopIn {
+            from { opacity: 0; transform: scale(0.9) translateY(12px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        /* In-Game Match Screen (#inGameView) */
+        .in-game-view {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            animation: fadeIn 0.3s ease;
+            box-sizing: border-box;
+        }
+
+        .in-game-card {
+            width: 100%;
+            max-width: 500px;
+            background: radial-gradient(circle at 50% 0%, #152540 0%, #0a111e 95%);
+            border: 1px solid var(--card-border-active);
+            border-radius: var(--radius-lg);
+            padding: 26px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 35px var(--arcane-cyan-glow);
+            box-sizing: border-box;
+        }
+
+        .in-game-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(10, 200, 185, 0.12);
+            border: 1px solid rgba(10, 200, 185, 0.4);
+            border-radius: var(--radius-pill);
+            padding: 4px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--arcane-cyan);
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .in-game-pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--arcane-cyan);
+            box-shadow: 0 0 8px var(--arcane-cyan);
+            animation: pulse-dot 1.5s infinite;
+        }
+
+        .in-game-title {
+            font-size: 26px;
+            font-weight: 900;
+            color: var(--gold-1);
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .in-game-subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+
+        .in-game-clock-container {
+            width: 100%;
+            background: rgba(6, 9, 16, 0.6);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-sizing: border-box;
+        }
+
+        .in-game-clock-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--gold-2);
+            letter-spacing: 1.5px;
+            margin-bottom: 4px;
+        }
+
+        .in-game-clock {
+            font-size: 44px;
+            font-weight: 900;
+            color: var(--gold-1);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 2px;
+            text-shadow: 0 0 15px rgba(240, 230, 210, 0.4);
+        }
+
+        .in-game-champ-info {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: rgba(14, 23, 42, 0.7);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 10px 16px;
+            width: 100%;
+            max-width: 340px;
+            margin-bottom: 18px;
+            text-align: left;
+            box-sizing: border-box;
+        }
+
+        .in-game-champ-img {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 2px solid var(--gold-2);
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        .in-game-champ-details {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            overflow: hidden;
+        }
+
+        .in-game-champ-name {
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--gold-1);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .in-game-role {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--arcane-cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .in-game-status-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            line-height: 1.5;
+            max-width: 320px;
+        }
+
+        /* Mobile Ergonomics & Viewport Adaptations (320px, 375px, 390px, 430px) */
+        button, .btn-action-outline, .btn-start-queue, .btn-cancel-queue,
+        .btn-ready-accept, .btn-ready-decline, .nav-tab-btn, .mode-chip, .role-pill {
+            min-height: 44px;
+            min-width: 44px;
+            box-sizing: border-box;
+        }
+
+        @media (max-width: 430px) {
+            html, body {
+                overflow-x: hidden;
+                width: 100%;
+            }
+            main {
+                width: 100%;
+                max-width: 100%;
+                overflow-x: hidden;
+            }
+            .ready-check-card {
+                width: calc(100% - 20px);
+                max-width: 390px;
+                padding: 24px 16px;
+            }
+            .in-game-card {
+                width: 100%;
+                padding: 22px 16px;
+            }
+        }
+
+        @media (max-width: 390px) {
+            .ready-check-title {
+                font-size: 20px;
+            }
+            .in-game-title {
+                font-size: 22px;
+            }
+            .in-game-clock {
+                font-size: 38px;
+            }
+            .btn-ready-accept {
+                font-size: 16px;
+                height: 52px;
+            }
+        }
+
+        @media (max-width: 375px) {
+            .mode-chips-grid {
+                grid-template-columns: 1fr;
+            }
+            .ready-check-timer-wrapper {
+                width: 76px;
+                height: 76px;
+            }
+            .ready-check-timer-ring {
+                width: 76px;
+                height: 76px;
+            }
+            .ready-check-countdown {
+                font-size: 22px;
+            }
+            .in-game-clock {
+                font-size: 34px;
+            }
+            .in-game-champ-info {
+                max-width: 100%;
+            }
+        }
+
+        @media (max-width: 320px) {
+            body {
+                padding: 8px 6px calc(var(--nav-height) + 12px) 6px;
+            }
+            header {
+                padding: 6px 2px 10px 2px;
+            }
+            .brand-title {
+                font-size: 16px;
+            }
+            .ready-check-card {
+                padding: 18px 12px;
+            }
+            .ready-check-title {
+                font-size: 18px;
+                letter-spacing: 1px;
+            }
+            .btn-ready-accept {
+                height: 46px;
+                min-height: 44px;
+                font-size: 14px;
+            }
+            .btn-ready-decline {
+                height: 44px;
+                min-height: 44px;
+                font-size: 13px;
+            }
+            .in-game-card {
+                padding: 16px 10px;
+            }
+            .in-game-title {
+                font-size: 19px;
+            }
+            .in-game-clock {
+                font-size: 30px;
+            }
+            .in-game-subtitle {
+                font-size: 12px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1485,11 +1962,8 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
 
                 <div class="action-area">
-                    <button id="acceptBtn" class="btn-accept" disabled>
-                        KABUL ET
-                    </button>
                     <div id="infoMessage" class="info-card">
-                        League of Legends eşleşmesi bulunduğunda buton parlayacaktır.
+                        League of Legends istemcisi bağlı olduğunda maç durumu burada görünür.
                     </div>
                 </div>
 
@@ -1611,6 +2085,36 @@ INDEX_HTML = """<!DOCTYPE html>
                     <div id="csActionReason" class="cs-action-reason"></div>
                 </div>
             </div>
+
+            <!-- In-Game Match View -->
+            <div id="inGameView" class="in-game-view" style="display: none;">
+                <div class="in-game-card">
+                    <div class="in-game-badge">
+                        <span class="in-game-pulse-dot"></span>
+                        <span>CANLI KARŞILAŞMA</span>
+                    </div>
+                    <h2 id="inGameTitle" class="in-game-title">⚔️ Maçtasın!</h2>
+                    <div id="inGameSubtitle" class="in-game-subtitle">Maç devam ediyor.</div>
+
+                    <div class="in-game-clock-container">
+                        <div class="in-game-clock-label">OYUN SÜRESİ</div>
+                        <div id="inGameClock" class="in-game-clock">00:00</div>
+                    </div>
+
+                    <!-- Player Champion & Role Info -->
+                    <div id="inGameChampInfo" class="in-game-champ-info" style="display: none;">
+                        <img id="inGameChampImg" class="in-game-champ-img" src="" alt="Şampiyon" />
+                        <div class="in-game-champ-details">
+                            <div id="inGameChampName" class="in-game-champ-name">--</div>
+                            <div id="inGameRole" class="in-game-role">--</div>
+                        </div>
+                    </div>
+
+                    <div class="in-game-status-hint">
+                        Karşılaşma tamamlandığında ekran otomatik olarak maç sonu özetine veya lobiye dönecektir.
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Tab 2: Loadout (Spells & Runes) Panel -->
@@ -1678,6 +2182,31 @@ INDEX_HTML = """<!DOCTYPE html>
         </div>
     </div>
 
+    <!-- Ready Check Modal Popup -->
+    <div id="readyCheckModal" class="ready-check-modal" style="display: none;">
+        <div class="ready-check-card">
+            <div class="ready-check-glow"></div>
+            <div class="ready-check-icon">⚔️</div>
+            <h2 id="readyCheckTitle" class="ready-check-title">⚔️ MAÇ BULUNDU!</h2>
+            <div class="ready-check-timer-wrapper">
+                <svg class="ready-check-timer-ring" width="84" height="84" viewBox="0 0 84 84">
+                    <circle class="ring-track" cx="42" cy="42" r="36" />
+                    <circle id="readyCheckRingProgress" class="ring-bar" cx="42" cy="42" r="36" />
+                </svg>
+                <div id="readyCheckCountdown" class="ready-check-countdown">10</div>
+            </div>
+            <div id="readyCheckStatus" class="ready-check-status">Kabul bekleniyor...</div>
+            <div class="ready-check-actions">
+                <button id="readyAcceptBtn" class="btn-ready-accept" type="button">
+                    <span>⚔️</span> KABUL ET
+                </button>
+                <button id="readyDeclineBtn" class="btn-ready-decline" type="button">
+                    REDDET
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Mobile Bottom Navigation Bar (LeagueCompanion One-Handed Ergonomics) -->
     <nav class="mobile-nav-bar">
         <button id="navTabGame" class="nav-tab-btn active">
@@ -1703,6 +2232,22 @@ INDEX_HTML = """<!DOCTYPE html>
         const phaseDisplay = document.getElementById('phaseDisplay');
         const acceptBtn = document.getElementById('acceptBtn');
         const infoMessage = document.getElementById('infoMessage');
+
+        // Ready Check Modal DOM references
+        const readyCheckModal = document.getElementById('readyCheckModal');
+        const readyAcceptBtn = document.getElementById('readyAcceptBtn');
+        const readyDeclineBtn = document.getElementById('readyDeclineBtn');
+        const readyCheckCountdown = document.getElementById('readyCheckCountdown');
+        const readyCheckRingProgress = document.getElementById('readyCheckRingProgress');
+        const readyCheckStatus = document.getElementById('readyCheckStatus');
+
+        // In-Game View DOM references
+        const inGameView = document.getElementById('inGameView');
+        const inGameClock = document.getElementById('inGameClock');
+        const inGameChampInfo = document.getElementById('inGameChampInfo');
+        const inGameChampImg = document.getElementById('inGameChampImg');
+        const inGameChampName = document.getElementById('inGameChampName');
+        const inGameRole = document.getElementById('inGameRole');
 
         // Champ select DOM references
         const champSelectView = document.getElementById('champSelectView');
@@ -2036,13 +2581,56 @@ INDEX_HTML = """<!DOCTYPE html>
         let currentPhaseStr = 'None';
         let queueStartTime = 0;
         let queueTimerInterval = null;
+        let inGameStartTime = 0;
+        let inGameTimerInterval = null;
         let isQueueActionInFlight = false;
+        let cachedPlayerChamp = null;
 
         function formatDuration(sec) {
             const total = Math.max(0, Math.floor(sec || 0));
             const m = Math.floor(total / 60).toString().padStart(2, '0');
             const s = (total % 60).toString().padStart(2, '0');
             return `${m}:${s}`;
+        }
+
+        function formatRoleName(role) {
+            if (!role) return '';
+            const map = {
+                'top': 'Üst Koridor',
+                'jungle': 'Orman',
+                'middle': 'Orta Koridor',
+                'mid': 'Orta Koridor',
+                'bottom': 'Alt Koridor',
+                'bot': 'Alt Koridor',
+                'utility': 'Destek',
+                'support': 'Destek'
+            };
+            return map[role.toLowerCase()] || role.toUpperCase();
+        }
+
+        function updateInGamePlayerInfo() {
+            if (!inGameChampInfo) return;
+            if (cachedPlayerChamp && (cachedPlayerChamp.name || cachedPlayerChamp.role)) {
+                inGameChampInfo.style.display = 'flex';
+                if (inGameChampName) inGameChampName.innerText = cachedPlayerChamp.name || 'Bilinmiyor';
+                if (inGameRole) inGameRole.innerText = formatRoleName(cachedPlayerChamp.role);
+                if (inGameChampImg) {
+                    if (cachedPlayerChamp.icon) {
+                        inGameChampImg.src = cachedPlayerChamp.icon;
+                        inGameChampImg.style.display = 'block';
+                    } else {
+                        inGameChampImg.style.display = 'none';
+                    }
+                }
+            } else {
+                inGameChampInfo.style.display = 'none';
+            }
+        }
+
+        function updateQueueClock() {
+            if (!queueStartTime) return;
+            const elapsed = Math.max(0, Math.floor((Date.now() - queueStartTime) / 1000));
+            if (queueTimerClock) queueTimerClock.innerText = formatDuration(elapsed);
         }
 
         function startQueueTimer(initialSeconds = 0) {
@@ -2060,13 +2648,8 @@ INDEX_HTML = """<!DOCTYPE html>
             if (queueTimerCard) queueTimerCard.style.display = 'flex';
             if (modeSelectorCard) modeSelectorCard.style.display = 'none';
 
-            const update = () => {
-                if (!queueStartTime) return;
-                const elapsed = Math.max(0, Math.floor((Date.now() - queueStartTime) / 1000));
-                if (queueTimerClock) queueTimerClock.innerText = formatDuration(elapsed);
-            };
-            update();
-            queueTimerInterval = setInterval(update, 1000);
+            updateQueueClock();
+            queueTimerInterval = setInterval(updateQueueClock, 1000);
         }
 
         function stopQueueTimer() {
@@ -2079,6 +2662,127 @@ INDEX_HTML = """<!DOCTYPE html>
             if (queueTimerClock) queueTimerClock.innerText = '00:00';
             if (queueEstimatedClock) queueEstimatedClock.innerText = 'Tahmini: --:--';
             if (modeSelectorCard) modeSelectorCard.style.display = 'flex';
+        }
+
+        function updateInGameClock() {
+            if (!inGameStartTime) return;
+            const elapsed = Math.max(0, Math.floor((Date.now() - inGameStartTime) / 1000));
+            if (inGameClock) inGameClock.innerText = formatDuration(elapsed);
+        }
+
+        function startInGameTimer(initialSeconds = 0) {
+            if (inGameTimerInterval) {
+                clearInterval(inGameTimerInterval);
+                inGameTimerInterval = null;
+            }
+
+            if (initialSeconds > 0) {
+                inGameStartTime = Date.now() - (Math.max(0, initialSeconds) * 1000);
+            } else if (!inGameStartTime) {
+                inGameStartTime = Date.now();
+            }
+
+            if (inGameView) inGameView.style.display = 'flex';
+            updateInGamePlayerInfo();
+            updateInGameClock();
+            inGameTimerInterval = setInterval(updateInGameClock, 1000);
+        }
+
+        function stopInGameTimer() {
+            if (inGameTimerInterval) {
+                clearInterval(inGameTimerInterval);
+                inGameTimerInterval = null;
+            }
+            inGameStartTime = 0;
+            if (inGameView) inGameView.style.display = 'none';
+            if (inGameClock) inGameClock.innerText = '00:00';
+        }
+
+        function refreshActiveTimers() {
+            if (queueStartTime && queueTimerClock) {
+                updateQueueClock();
+            }
+            if (inGameStartTime && inGameClock) {
+                updateInGameClock();
+            }
+        }
+
+        // Ready Check Modal Lifecycle
+        let readyCheckTimerInterval = null;
+        let readyCheckRemaining = 10;
+        const READY_CHECK_MAX = 10;
+        const READY_RING_CIRCUMFERENCE = 226;
+        let isReadyCheckActionInFlight = false;
+
+        function startReadyCheckModalTimer(seconds = 10) {
+            if (readyCheckTimerInterval) {
+                clearInterval(readyCheckTimerInterval);
+                readyCheckTimerInterval = null;
+            }
+            readyCheckRemaining = Math.max(1, seconds);
+            const ringProgress = document.getElementById('readyCheckRingProgress');
+            const countdownEl = document.getElementById('readyCheckCountdown');
+
+            const updateRing = () => {
+                if (countdownEl) {
+                    countdownEl.innerText = Math.max(0, readyCheckRemaining);
+                }
+                if (ringProgress) {
+                    const frac = Math.max(0, readyCheckRemaining) / READY_CHECK_MAX;
+                    const offset = READY_RING_CIRCUMFERENCE * (1 - frac);
+                    ringProgress.style.strokeDashoffset = offset;
+                    if (frac <= 0.3) {
+                        ringProgress.style.stroke = 'var(--danger)';
+                    } else {
+                        ringProgress.style.stroke = 'var(--gold-2)';
+                    }
+                }
+            };
+            updateRing();
+            readyCheckTimerInterval = setInterval(() => {
+                readyCheckRemaining -= 1;
+                updateRing();
+                if (readyCheckRemaining <= 0) {
+                    clearInterval(readyCheckTimerInterval);
+                    readyCheckTimerInterval = null;
+                    if (readyCheckStatus) {
+                        readyCheckStatus.innerText = 'Süre doldu!';
+                    }
+                    if (readyAcceptBtn) readyAcceptBtn.disabled = true;
+                    if (readyDeclineBtn) readyDeclineBtn.disabled = true;
+                }
+            }, 1000);
+        }
+
+        function openReadyCheckModal() {
+            if (!readyCheckModal) return;
+            isReadyCheckActionInFlight = false;
+            readyCheckModal.style.display = 'flex';
+            if (readyAcceptBtn) {
+                readyAcceptBtn.disabled = false;
+                readyAcceptBtn.classList.remove('accepted');
+                readyAcceptBtn.innerHTML = '<span>⚔️</span> KABUL ET';
+            }
+            if (readyDeclineBtn) {
+                readyDeclineBtn.disabled = false;
+                readyDeclineBtn.innerText = 'REDDET';
+            }
+            if (readyCheckStatus) {
+                readyCheckStatus.innerText = 'Kabul bekleniyor...';
+            }
+            startReadyCheckModalTimer(10);
+            playChime();
+            triggerVibrate();
+        }
+
+        function closeReadyCheckModal() {
+            if (!readyCheckModal) return;
+            readyCheckModal.style.display = 'none';
+            if (readyCheckTimerInterval) {
+                clearInterval(readyCheckTimerInterval);
+                readyCheckTimerInterval = null;
+            }
+            isReadyCheckActionInFlight = false;
         }
 
         function setStatus(text, type) {
@@ -2145,8 +2849,11 @@ INDEX_HTML = """<!DOCTYPE html>
             if (stationPhase) stationPhase.innerText = p;
 
             if (p === 'ChampSelect') {
+                closeReadyCheckModal();
+                stopInGameTimer();
                 stopQueueTimer();
                 mainView.style.display = 'none';
+                if (inGameView) inGameView.style.display = 'none';
                 champSelectView.style.display = 'flex';
                 if (socket && socket.readyState === WebSocket.OPEN) {
                     try {
@@ -2155,9 +2862,20 @@ INDEX_HTML = """<!DOCTYPE html>
                         socket.send(JSON.stringify({ type: 'GET_SPELLS', token: sessionToken }));
                     } catch (e) {}
                 }
-            } else {
-                mainView.style.display = 'flex';
+            } else if (p === 'InProgress' || p === 'GameStart') {
+                closeReadyCheckModal();
+                stopQueueTimer();
+                mainView.style.display = 'none';
                 champSelectView.style.display = 'none';
+                if (inGameView) inGameView.style.display = 'flex';
+                startInGameTimer();
+                phaseDisplay.innerText = '🔥 Oyunda';
+                if (infoMessage) infoMessage.innerText = 'Karşılaşma devam ediyor.';
+            } else {
+                stopInGameTimer();
+                if (inGameView) inGameView.style.display = 'none';
+                champSelectView.style.display = 'none';
+                mainView.style.display = 'flex';
                 clearInterval(timerCountdownInterval);
                 lastFetchedRunesChampId = 0;
 
@@ -2165,49 +2883,37 @@ INDEX_HTML = """<!DOCTYPE html>
                     stopQueueTimer();
                     phaseDisplay.innerText = '⚔️ MAÇ BULUNDU!';
                     phaseCard.classList.add('ready-check-active');
-                    acceptBtn.disabled = false;
-                    acceptBtn.classList.remove('accepted');
-                    acceptBtn.classList.add('active');
-                    acceptBtn.innerText = 'KABUL ET';
-                    infoMessage.innerText = 'Eşleşme bulundu! Sırayı kaçırmamak için butona basın.';
-                    playChime();
-                    triggerVibrate();
+                    if (infoMessage) infoMessage.innerText = 'Eşleşme bulundu! Sırayı kaçırmamak için onaylayın.';
+                    openReadyCheckModal();
                 } else {
+                    closeReadyCheckModal();
                     phaseCard.classList.remove('ready-check-active');
-                    acceptBtn.disabled = true;
-                    acceptBtn.classList.remove('active');
-                    acceptBtn.classList.remove('accepted');
 
                     if (p === 'Matchmaking') {
                         phaseDisplay.innerText = '⏳ Sırada...';
-                        acceptBtn.innerText = 'SIRADA BEKLENİYOR';
-                        infoMessage.innerText = 'Eşleşme aranıyor...';
+                        if (infoMessage) infoMessage.innerText = 'Eşleşme aranıyor...';
                         const timeSec = (search && search.time_in_queue) || 0;
                         startQueueTimer(timeSec);
                         if (search && search.estimated_delay > 0 && queueEstimatedClock) {
                             queueEstimatedClock.innerText = 'Tahmini: ' + formatDuration(search.estimated_delay);
                         }
-                    } else if (p === 'InProgress') {
-                        stopQueueTimer();
-                        phaseDisplay.innerText = '🔥 Oyunda';
-                        acceptBtn.innerText = 'OYUNDASINIZ';
-                        infoMessage.innerText = 'Karşılaşma devam ediyor.';
                     } else if (p === 'Lobby') {
                         stopQueueTimer();
                         phaseDisplay.innerText = '🏠 Lobide';
-                        acceptBtn.innerText = 'LOBİDE';
-                        infoMessage.innerText = 'Oda liderinin sırayı başlatması bekleniyor.';
+                        if (infoMessage) infoMessage.innerText = 'Oda liderinin sırayı başlatması bekleniyor.';
+                    } else if (p === 'WaitingForStats' || p === 'PreEndOfGame' || p === 'EndOfGame') {
+                        stopQueueTimer();
+                        phaseDisplay.innerText = '🏁 Oyun Sonu';
+                        if (infoMessage) infoMessage.innerText = 'Karşılaşma tamamlandı. İstatistikler bekleniyor.';
                     } else {
                         // Phase is 'None'
                         stopQueueTimer();
                         if (isLcuConnected) {
                             phaseDisplay.innerText = '🎮 İstemci Hazır (Boşta)';
-                            acceptBtn.innerText = 'HAZIR';
-                            infoMessage.innerText = 'League of Legends istemcisi bağlı. Lobi oluşturabilir veya maç arayabilirsiniz.';
+                            if (infoMessage) infoMessage.innerText = 'League of Legends istemcisi bağlı. Lobi oluşturabilir veya maç arayabilirsiniz.';
                         } else {
                             phaseDisplay.innerText = '🎮 Oyun Dışı';
-                            acceptBtn.innerText = 'BEKLENİYOR';
-                            infoMessage.innerText = 'League Client bağlantısı bekleniyor...';
+                            if (infoMessage) infoMessage.innerText = 'League Client bağlantısı bekleniyor...';
                         }
                     }
                 }
@@ -2288,6 +2994,26 @@ INDEX_HTML = """<!DOCTYPE html>
             currentChampSelect = data;
             if (modeCtx) currentModeContext = modeCtx;
             if (eligibility) currentEligibility = eligibility;
+
+            // Cache local player champion & role for in-game view
+            if (data && Array.isArray(data.myTeam)) {
+                const localId = data.localPlayerCellId !== undefined ? data.localPlayerCellId : data.local_player_cell_id;
+                const me = data.myTeam.find(p => (p.cellId !== undefined ? p.cellId : p.cell_id) === localId);
+                if (me) {
+                    const cid = me.championId || me.champion_id || 0;
+                    const pos = me.assignedPosition || me.assigned_position || '';
+                    let cname = '';
+                    let cicon = '';
+                    if (cid > 0) {
+                        const found = gridChampions.find(c => c.id === cid);
+                        cname = found ? found.name : findChampionName(cid);
+                        cicon = (found && found.squarePortraitPath) || `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/${cid}.png`;
+                    }
+                    if (cname || pos) {
+                        cachedPlayerChamp = { name: cname, role: pos, icon: cicon };
+                    }
+                }
+            }
 
             const effMode = currentModeContext || data.modeContext || {};
             const effElig = currentEligibility || data.eligibility || {};
@@ -2887,11 +3613,39 @@ INDEX_HTML = """<!DOCTYPE html>
                         renderChampGrid();
                     } else if (data.type === 'READY_CHECK_ACCEPTED') {
                         if (data.success) {
-                            acceptBtn.innerText = '✓ KABUL EDİLDİ';
-                            acceptBtn.classList.remove('active');
-                            acceptBtn.classList.add('accepted');
-                            infoMessage.innerText = 'Maç kabul edildi! Şampiyon seçimi bekleniyor.';
+                            if (readyAcceptBtn) {
+                                readyAcceptBtn.innerText = '✓ KABUL EDİLDİ';
+                                readyAcceptBtn.classList.add('accepted');
+                            }
+                            if (readyCheckStatus) {
+                                readyCheckStatus.innerText = 'Maç kabul edildi! Diğer oyuncular bekleniyor...';
+                            }
+                            if (infoMessage) {
+                                infoMessage.innerText = 'Maç kabul edildi! Şampiyon seçimi bekleniyor.';
+                            }
+                        } else {
+                            if (readyAcceptBtn) {
+                                readyAcceptBtn.disabled = false;
+                                readyAcceptBtn.innerHTML = '<span>⚔️</span> KABUL ET';
+                            }
+                            if (readyDeclineBtn) {
+                                readyDeclineBtn.disabled = false;
+                            }
+                            isReadyCheckActionInFlight = false;
+                            if (readyCheckStatus) {
+                                readyCheckStatus.innerText = 'Kabul başarısız oldu.';
+                            }
                         }
+                    } else if (data.type === 'READY_CHECK_DECLINED') {
+                        if (readyDeclineBtn) {
+                            readyDeclineBtn.innerText = 'REDDEDİLDİ';
+                        }
+                        if (readyCheckStatus) {
+                            readyCheckStatus.innerText = 'Maç reddedildi.';
+                        }
+                        setTimeout(() => {
+                            closeReadyCheckModal();
+                        }, 500);
                     } else if (data.type === 'SPELLS_CATALOG') {
                         if (Array.isArray(data.spells)) {
                             spellsCatalog = data.spells;
@@ -2962,9 +3716,10 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         }, 8000);
 
-        // Auto re-sync on tab / lock screen wake
+        // Auto re-sync on tab / lock screen wake & focus
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
+                refreshActiveTimers();
                 if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
                     if (localStorage.getItem('riftpilot_session_token')) {
                         connectWebSocket();
@@ -2972,7 +3727,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 } else if (socket.readyState === WebSocket.OPEN) {
                     try {
                         socket.send(JSON.stringify({ type: 'GET_STATE', token: sessionToken }));
-                        if (champSelectView.style.display !== 'none') {
+                        if (champSelectView && champSelectView.style.display !== 'none') {
                             socket.send(JSON.stringify({ type: 'GET_CHAMP_SELECT', token: sessionToken }));
                         }
                     } catch (e) {}
@@ -2980,16 +3735,85 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         });
 
-        acceptBtn.addEventListener('click', () => {
-            if (!acceptBtn.disabled && socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'ACCEPT_READY_CHECK',
-                    token: sessionToken
-                }));
-                acceptBtn.innerText = 'GÖNDERİLİYOR...';
-                acceptBtn.disabled = true;
-            }
+        window.addEventListener('focus', () => {
+            refreshActiveTimers();
         });
+
+        // Ready Check Modal Button Listeners
+        if (readyAcceptBtn) {
+            readyAcceptBtn.addEventListener('click', async () => {
+                if (isReadyCheckActionInFlight) return;
+                isReadyCheckActionInFlight = true;
+                readyAcceptBtn.disabled = true;
+                readyDeclineBtn.disabled = true;
+                readyAcceptBtn.innerText = 'İşleniyor...';
+                readyDeclineBtn.innerText = 'İşleniyor...';
+                if (readyCheckStatus) readyCheckStatus.innerText = 'Kabul ediliyor...';
+
+                let wsSent = false;
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    try {
+                        socket.send(JSON.stringify({
+                            type: 'ACCEPT_MATCH',
+                            token: sessionToken
+                        }));
+                        wsSent = true;
+                    } catch (e) {}
+                }
+                if (!wsSent) {
+                    try {
+                        const resp = await fetch('/api/match/accept', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ token: sessionToken })
+                        });
+                        const data = await resp.json();
+                        if (data && data.success) {
+                            readyAcceptBtn.innerText = '✓ KABUL EDİLDİ';
+                            readyAcceptBtn.classList.add('accepted');
+                            if (readyCheckStatus) readyCheckStatus.innerText = 'Kabul edildi!';
+                        }
+                    } catch (e) {
+                        if (readyCheckStatus) readyCheckStatus.innerText = 'İstek gönderilemedi.';
+                    }
+                }
+            });
+        }
+
+        if (readyDeclineBtn) {
+            readyDeclineBtn.addEventListener('click', async () => {
+                if (isReadyCheckActionInFlight) return;
+                isReadyCheckActionInFlight = true;
+                readyAcceptBtn.disabled = true;
+                readyDeclineBtn.disabled = true;
+                readyAcceptBtn.innerText = 'İşleniyor...';
+                readyDeclineBtn.innerText = 'İşleniyor...';
+                if (readyCheckStatus) readyCheckStatus.innerText = 'Reddediliyor...';
+
+                let wsSent = false;
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    try {
+                        socket.send(JSON.stringify({
+                            type: 'DECLINE_MATCH',
+                            token: sessionToken
+                        }));
+                        wsSent = true;
+                    } catch (e) {}
+                }
+                if (!wsSent) {
+                    try {
+                        await fetch('/api/match/decline', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ token: sessionToken })
+                        });
+                    } catch (e) {}
+                }
+                setTimeout(() => {
+                    closeReadyCheckModal();
+                }, 500);
+            });
+        }
 
         function fetchInitialLcuStatus() {
             fetch('/api/lcu/status')
@@ -3122,6 +3946,74 @@ DEFAULT_CHAMPION_CATALOG: list[ChampionSummary] = [
     ChampionSummary(id=268, name="Azir", roles=["mage"]),
     ChampionSummary(id=412, name="Thresh", roles=["support", "tank"]),
 ]
+
+
+async def _perform_accept_ready_check(adapter: Any) -> bool:
+    """Accept an active ready check prompt on the League Client or mock adapter."""
+    if adapter is None:
+        return False
+    if hasattr(adapter, "accept_ready_check"):
+        res = adapter.accept_ready_check()
+        if inspect.iscoroutine(res):
+            return bool(await res)
+        return bool(res)
+    client = getattr(adapter, "_client", None)
+    if client is not None:
+        try:
+            resp = await client.post("/lol-matchmaking/v1/ready-check/accept")
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Error accepting ready check via LCU client: %s", exc)
+    return False
+
+
+async def _perform_decline_ready_check(adapter: Any) -> bool:
+    """Decline an active ready check prompt on the League Client or mock adapter."""
+    if adapter is None:
+        return False
+
+    # 1. Adapter direct method if implemented
+    if hasattr(adapter, "decline_ready_check"):
+        res = adapter.decline_ready_check()
+        if inspect.iscoroutine(res):
+            return bool(await res)
+        return bool(res)
+
+    # 2. Riot LCU HTTP client fallback
+    client = getattr(adapter, "_client", None)
+    if client is not None:
+        try:
+            resp = await client.post("/lol-matchmaking/v1/ready-check/decline")
+            if resp.status_code in (200, 204):
+                return True
+        except Exception as exc:
+            logger.warning("Error declining ready check via LCU client: %s", exc)
+
+    # 3. Mock LCU adapter simulation fallback
+    status = getattr(adapter, "_status", None)
+    if status is not None and getattr(status, "value", str(status)) == "Disconnected":
+        logger.warning("decline_ready_check rejected: adapter is not connected.")
+        return False
+
+    updated = False
+    if hasattr(adapter, "player_response"):
+        adapter.player_response = "Declined"
+        updated = True
+    if hasattr(adapter, "ready_check_state"):
+        adapter.ready_check_state = "Declined"
+        updated = True
+    if hasattr(adapter, "ready_check") and isinstance(adapter.ready_check, dict):
+        adapter.ready_check["playerResponse"] = "Declined"
+        adapter.ready_check["state"] = "Declined"
+        updated = True
+
+    if hasattr(adapter, "simulate_phase_change"):
+        try:
+            await adapter.simulate_phase_change(GameflowPhase.LOBBY)
+        except Exception:
+            pass
+
+    return updated
 
 
 def create_app(
@@ -3723,6 +4615,22 @@ def create_app(
         success = await lcu_adapter.cancel_matchmaking()
         return {"success": success}
 
+    @app.post("/api/match/accept")
+    async def accept_match_endpoint(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Accept an active ready check (match found) prompt."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await _perform_accept_ready_check(lcu_adapter)
+        return {"success": bool(success)}
+
+    @app.post("/api/match/decline")
+    async def decline_match_endpoint(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Decline an active ready check prompt."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success = await _perform_decline_ready_check(lcu_adapter)
+        return {"success": bool(success)}
+
     @app.put("/api/lobby/preferences")
     async def set_preferences_endpoint(payload: SetPositionPreferencesRequest) -> dict[str, Any]:
         """Set position preferences for the local lobby member."""
@@ -3964,7 +4872,7 @@ def create_app(
 
                 cmd_type = data.get("type")
 
-                if cmd_type == "ACCEPT_READY_CHECK":
+                if cmd_type in ("ACCEPT_MATCH", "ACCEPT_READY_CHECK"):
                     success = False
                     if lcu_adapter is not None:
                         try:
@@ -3978,15 +4886,31 @@ def create_app(
                                 phase == GameflowPhase.READY_CHECK
                                 or phase_val == "ReadyCheck"
                             ):
-                                success = await lcu_adapter.accept_ready_check()
+                                success = await _perform_accept_ready_check(lcu_adapter)
                         except Exception as exc:
                             logger.warning(
-                                "Error executing accept_ready_check: %s", exc
+                                "Error executing accept_match: %s", exc
                             )
 
                     await websocket.send_json(
                         {
                             "type": "READY_CHECK_ACCEPTED",
+                            "success": bool(success),
+                        }
+                    )
+                elif cmd_type in ("DECLINE_MATCH", "DECLINE_READY_CHECK"):
+                    success = False
+                    if lcu_adapter is not None:
+                        try:
+                            success = await _perform_decline_ready_check(lcu_adapter)
+                        except Exception as exc:
+                            logger.warning(
+                                "Error executing decline_match: %s", exc
+                            )
+
+                    await websocket.send_json(
+                        {
+                            "type": "READY_CHECK_DECLINED",
                             "success": bool(success),
                         }
                     )
