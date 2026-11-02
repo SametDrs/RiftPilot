@@ -18,6 +18,14 @@ from typing import Any, Callable
 from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
 from riftpilot.core.game_mode import GameModeContext
 from riftpilot.core.lcu_port import GameflowPhase, ILcuPort, LcuConnectionStatus
+from riftpilot.core.lobby import (
+    BenchChampion,
+    ChampSelectTrade,
+    LobbyData,
+    LobbyMember,
+    MatchmakingSearchState,
+    PositionPreference,
+)
 from riftpilot.core.runes_spells import (
     RecommendedRunePage,
     RunePage,
@@ -74,6 +82,14 @@ class MockLcuAdapter(ILcuPort):
         ] = []
 
         # Ready check state attributes
+        self._lobby_subscribers: list[Callable[[LobbyData | None], Any]] = []
+        self._lobby_data: LobbyData | None = None
+        self._matchmaking_state: MatchmakingSearchState | None = None
+        self._bench_champions: list[BenchChampion] = [
+            BenchChampion(champion_id=22, champion_name="Ashe"),
+            BenchChampion(champion_id=1, champion_name="Annie"),
+        ]
+        self._trades: list[ChampSelectTrade] = []
         self.player_response: str = "None"
         self.ready_check_state: str = "Invalid"
         self.ready_check: dict[str, Any] = {
@@ -306,6 +322,168 @@ class MockLcuAdapter(ILcuPort):
         if self._recommended_pages_by_champ is not None:
             return list(self._recommended_pages_by_champ.get(champion_id, []))
         return _build_default_mock_recommended_pages(champion_id)
+
+
+    # ========================================================================
+    # Lobby & Matchmaking Implementation (Milestone 4)
+    # ========================================================================
+
+    async def get_lobby(self) -> LobbyData | None:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return None
+        return self._lobby_data
+
+    async def start_matchmaking(self) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED or self._lobby_data is None:
+            return False
+        self._matchmaking_state = MatchmakingSearchState(
+            is_in_queue=True,
+            search_state="Searching",
+            time_in_queue=1.0,
+            estimated_delay=45.0,
+        )
+        await self.simulate_phase_change(GameflowPhase.MATCHMAKING)
+        return True
+
+    async def cancel_matchmaking(self) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        self._matchmaking_state = MatchmakingSearchState(
+            is_in_queue=False,
+            search_state="Canceled",
+            time_in_queue=0.0,
+        )
+        await self.simulate_phase_change(GameflowPhase.LOBBY)
+        return True
+
+    async def set_position_preferences(self, first: str, second: str) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED or self._lobby_data is None:
+            return False
+        pref1 = PositionPreference.from_str(first)
+        pref2 = PositionPreference.from_str(second)
+        updated_members: list[LobbyMember] = []
+        for member in self._lobby_data.members:
+            if member.is_local_member:
+                updated_members.append(
+                    LobbyMember(
+                        summoner_id=member.summoner_id,
+                        summoner_name=member.summoner_name,
+                        puuid=member.puuid,
+                        is_leader=member.is_leader,
+                        is_local_member=True,
+                        first_position_preference=pref1,
+                        second_position_preference=pref2,
+                        is_ready=member.is_ready,
+                    )
+                )
+            else:
+                updated_members.append(member)
+        self._lobby_data = LobbyData(
+            queue_id=self._lobby_data.queue_id,
+            game_mode=self._lobby_data.game_mode,
+            is_leader=self._lobby_data.is_leader,
+            can_start_activity=self._lobby_data.can_start_activity,
+            is_custom=self._lobby_data.is_custom,
+            members=updated_members,
+        )
+        await self._dispatch_lobby(self._lobby_data)
+        return True
+
+    async def get_matchmaking_search(self) -> MatchmakingSearchState | None:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return None
+        return self._matchmaking_state
+
+    def subscribe_lobby(
+        self, callback: Callable[[LobbyData | None], Any]
+    ) -> None:
+        if callback not in self._lobby_subscribers:
+            self._lobby_subscribers.append(callback)
+
+    def unsubscribe_lobby(
+        self, callback: Callable[[LobbyData | None], Any]
+    ) -> bool:
+        if callback in self._lobby_subscribers:
+            self._lobby_subscribers.remove(callback)
+            return True
+        return False
+
+    async def _dispatch_lobby(self, lobby: LobbyData | None) -> None:
+        for cb in list(self._lobby_subscribers):
+            try:
+                res = cb(lobby)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as e:
+                logger.warning("Error in lobby subscriber callback: %s", e)
+
+    # ========================================================================
+    # ARAM Bench & Trades Implementation (Milestone 4)
+    # ========================================================================
+
+    async def bench_swap(self, champion_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        bench_match = next((b for b in self._bench_champions if b.champion_id == champion_id), None)
+        if not bench_match:
+            return False
+        self._bench_champions = [b for b in self._bench_champions if b.champion_id != champion_id]
+        if self._champ_select_session:
+            local_p = self._champ_select_session.get_local_player()
+            if local_p:
+                old_id = local_p.champion_id or local_p.champion_pick_intent or 157
+                self._bench_champions.append(BenchChampion(champion_id=old_id, champion_name=f"Champion #{old_id}"))
+                local_p.champion_id = champion_id
+                local_p.champion_pick_intent = champion_id
+                await self._dispatch_champ_select(self._champ_select_session)
+        return True
+
+    async def reroll(self) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        return True
+
+    async def get_bench_champions(self) -> list[BenchChampion]:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return []
+        return list(self._bench_champions)
+
+    async def get_trades(self) -> list[ChampSelectTrade]:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return []
+        return list(self._trades)
+
+    async def request_trade(self, trade_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        return True
+
+    async def accept_trade(self, trade_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        return True
+
+    async def decline_trade(self, trade_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        return True
+
+    async def simulate_lobby(self, lobby: LobbyData | None) -> None:
+        self._lobby_data = lobby
+        if lobby is not None and self._phase in (GameflowPhase.NONE, GameflowPhase.MATCHMAKING):
+            await self.simulate_phase_change(GameflowPhase.LOBBY)
+        await self._dispatch_lobby(lobby)
+
+    async def simulate_matchmaking(self, search: MatchmakingSearchState | None) -> None:
+        self._matchmaking_state = search
+        if search and search.is_in_queue:
+            await self.simulate_phase_change(GameflowPhase.MATCHMAKING)
+
+    def set_bench_champions(self, bench: list[BenchChampion]) -> None:
+        self._bench_champions = list(bench)
+
+    def set_trades(self, trades: list[ChampSelectTrade]) -> None:
+        self._trades = list(trades)
 
     # ========================================================================
     # Test Simulation Helpers

@@ -3,7 +3,7 @@
 Outbound adapter maintaining a persistent WebSocket connection to the League Client Update (LCU)
 event stream over local WSS with self-signed SSL verification disabled.
 
-Implements real-time gameflow phase and champion select event streaming according to
+Implements real-time gameflow phase, champion select, and party lobby event streaming according to
 Hexagonal Architecture (ADR-0003) and Shift-Left security specifications (ADR-0004).
 """
 
@@ -22,6 +22,7 @@ import websockets.exceptions
 from riftpilot.adapters.lcu_discovery import LcuCredentials
 from riftpilot.core.champ_select import ChampSelectSession
 from riftpilot.core.lcu_port import GameflowPhase
+from riftpilot.core.lobby import LobbyData
 
 logger = logging.getLogger("RiftPilot.LcuStream")
 
@@ -81,39 +82,33 @@ def parse_lcu_event(raw_message: str | bytes) -> tuple[str, Any] | None:
 
 
 class LcuEventStream:
-    """Real-time event streaming adapter for the League Client (LCU) WebSocket interface.
-
-    Connects to the local LCU WebSocket server using WAMP v1 protocol, subscribes to
-    gameflow phase events, and dispatches updates to registered callbacks.
-    """
+    """Outbound adapter providing a persistent WebSocket event stream from LCU."""
 
     def __init__(
         self,
         credentials: LcuCredentials,
         on_phase_change: Callable[[GameflowPhase], Any] | None = None,
     ) -> None:
-        """Initialize the LCU event stream.
-
-        Args:
-            credentials: LCU credentials containing WebSocket URL and auth credentials.
-            on_phase_change: Optional callback invoked when gameflow phase transitions occur.
-        """
-        self._credentials: LcuCredentials = credentials
+        """Initialize event stream adapter with LCU credentials and optional initial phase callback."""
+        self._credentials = credentials
+        self._ws: websockets.WebSocketClientProtocol | None = None
+        self._listener_task: asyncio.Task[None] | None = None
         self._callbacks: list[Callable[[GameflowPhase], Any]] = []
         if on_phase_change is not None:
             self._callbacks.append(on_phase_change)
         self._champ_select_callbacks: list[
             Callable[[ChampSelectSession | None], Any]
         ] = []
-        self._is_connected: bool = False
-        self._is_running: bool = False
-        self._ws: Any = None
-        self._listener_task: asyncio.Task[None] | None = None
+        self._lobby_callbacks: list[
+            Callable[[LobbyData | None], Any]
+        ] = []
+        self._is_connected = False
+        self._is_running = False
 
     @property
     def is_connected(self) -> bool:
-        """Return True if WebSocket connection is currently active."""
-        return self._is_connected
+        """Return True if WebSocket connection is open and active."""
+        return self._is_connected and self._ws is not None
 
     @property
     def is_running(self) -> bool:
@@ -130,11 +125,7 @@ class LcuEventStream:
     def remove_phase_callback(
         self, callback: Callable[[GameflowPhase], Any]
     ) -> bool:
-        """Unregister an existing phase change callback.
-
-        Returns:
-            True if the callback was registered and removed, False otherwise.
-        """
+        """Unregister an existing phase change callback."""
         if callback in self._callbacks:
             self._callbacks.remove(callback)
             return True
@@ -150,22 +141,30 @@ class LcuEventStream:
     def remove_champ_select_callback(
         self, callback: Callable[[ChampSelectSession | None], Any]
     ) -> bool:
-        """Unregister an existing champion select session callback.
-
-        Returns:
-            True if the callback was registered and removed, False otherwise.
-        """
+        """Unregister an existing champion select session callback."""
         if callback in self._champ_select_callbacks:
             self._champ_select_callbacks.remove(callback)
             return True
         return False
 
-    async def start(self) -> bool:
-        """Connect to the LCU WebSocket interface and start listening for events.
+    def add_lobby_callback(
+        self, callback: Callable[[LobbyData | None], Any]
+    ) -> None:
+        """Register a callback for party lobby updates."""
+        if callback not in self._lobby_callbacks:
+            self._lobby_callbacks.append(callback)
 
-        Returns:
-            True if connection and subscription succeeded, False otherwise.
-        """
+    def remove_lobby_callback(
+        self, callback: Callable[[LobbyData | None], Any]
+    ) -> bool:
+        """Unregister an existing lobby update callback."""
+        if callback in self._lobby_callbacks:
+            self._lobby_callbacks.remove(callback)
+            return True
+        return False
+
+    async def start(self) -> bool:
+        """Connect to the LCU WebSocket interface and start listening for events."""
         if self._is_running:
             return True
 
@@ -178,15 +177,14 @@ class LcuEventStream:
                 self._credentials.ws_url,
                 ssl=ssl_ctx,
                 additional_headers={
-                    "Authorization": self._credentials.basic_auth_header
+                    "Authorization": self._credentials.basic_auth_header,
                 },
+                ping_interval=20,
+                ping_timeout=10,
+                close_timeout=5,
             )
         except Exception as exc:
-            logger.warning(
-                "Failed to connect to LCU WebSocket at %s: %s",
-                self._credentials.ws_url,
-                exc,
-            )
+            logger.debug("Failed to connect to LCU WebSocket at %s: %s", self._credentials.ws_url, exc)
             self._is_connected = False
             self._is_running = False
             self._ws = None
@@ -197,7 +195,6 @@ class LcuEventStream:
 
         try:
             # Opcode 5: WAMP v1 SUBSCRIBE
-            # Subscribe to global OnJsonApiEvent so no event is ever dropped
             subscribe_all_msg = json.dumps([
                 5,
                 "OnJsonApiEvent",
@@ -216,6 +213,12 @@ class LcuEventStream:
                 "OnJsonApiEvent_lol-champ-select_v1_session",
             ])
             await self._ws.send(subscribe_champ_select_msg)
+
+            subscribe_lobby_msg = json.dumps([
+                5,
+                "OnJsonApiEvent_lol-lobby_v2_lobby",
+            ])
+            await self._ws.send(subscribe_lobby_msg)
         except Exception as exc:
             logger.warning("Failed to send subscription handshake: %s", exc)
             await self.stop()
@@ -256,6 +259,12 @@ class LcuEventStream:
                     else:
                         session = None
                     await self._dispatch_champ_select(session)
+                elif uri == "/lol-lobby/v2/lobby":
+                    if isinstance(data, dict):
+                        lobby = LobbyData.from_lcu_dict(data)
+                    else:
+                        lobby = None
+                    await self._dispatch_lobby(lobby)
 
         self._is_connected = False
         self._is_running = False
@@ -282,11 +291,22 @@ class LcuEventStream:
             except Exception as exc:
                 logger.warning("Error in champ select stream callback: %s", exc)
 
+    async def _dispatch_lobby(
+        self, lobby: LobbyData | None
+    ) -> None:
+        """Dispatch a lobby update to all registered callbacks."""
+        for cb in list(self._lobby_callbacks):
+            try:
+                res = cb(lobby)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as exc:
+                logger.warning("Error in lobby stream callback: %s", exc)
+
     async def stop(self) -> None:
         """Gracefully stop listener task and close WebSocket connection."""
         self._is_running = False
         self._is_connected = False
-        self._is_running = False
 
         if self._listener_task is not None:
             if not self._listener_task.done():

@@ -16,6 +16,12 @@ from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
     from riftpilot.core.game_mode import GameModeContext
+    from riftpilot.core.lobby import (
+        BenchChampion,
+        ChampSelectTrade,
+        LobbyData,
+        MatchmakingSearchState,
+    )
     from riftpilot.core.runes_spells import RecommendedRunePage, RunePage, SummonerSpell
 
 
@@ -86,6 +92,42 @@ class ILcuPort(ABC):
         ...
 
     # ========================================================================
+    # Lobby & Matchmaking Contract (Milestone 4)
+    # ========================================================================
+
+    async def get_lobby(self) -> LobbyData | None:
+        """Retrieve active party lobby data from LCU, or None if not in lobby."""
+        return None
+
+    async def start_matchmaking(self) -> bool:
+        """Initiate matchmaking search for the active party lobby."""
+        return False
+
+    async def cancel_matchmaking(self) -> bool:
+        """Cancel ongoing matchmaking search."""
+        return False
+
+    async def set_position_preferences(self, first: str, second: str) -> bool:
+        """Update role preferences for the local member."""
+        return False
+
+    async def get_matchmaking_search(self) -> MatchmakingSearchState | None:
+        """Retrieve real-time matchmaking queue search status."""
+        return None
+
+    def subscribe_lobby(
+        self, callback: Callable[[LobbyData | None], Any]
+    ) -> None:
+        """Register a callback for lobby state updates."""
+        pass
+
+    def unsubscribe_lobby(
+        self, callback: Callable[[LobbyData | None], Any]
+    ) -> bool:
+        """Unregister a lobby update callback."""
+        return False
+
+    # ========================================================================
     # Game Mode & Champion Select Contract
     # ========================================================================
 
@@ -127,6 +169,38 @@ class ILcuPort(ABC):
     ) -> bool:
         """Unregister a callback for champion select session state updates."""
         ...
+
+    # ========================================================================
+    # ARAM Bench & Trades Contract (Milestone 4)
+    # ========================================================================
+
+    async def bench_swap(self, champion_id: int) -> bool:
+        """Swap current champion with one from the ARAM bench."""
+        return False
+
+    async def reroll(self) -> bool:
+        """Reroll current champion in ARAM."""
+        return False
+
+    async def get_bench_champions(self) -> list[BenchChampion]:
+        """Return list of champions available on the bench."""
+        return []
+
+    async def get_trades(self) -> list[ChampSelectTrade]:
+        """Return current champion select trades."""
+        return []
+
+    async def request_trade(self, trade_id: int) -> bool:
+        """Initiate or request a trade with a teammate."""
+        return False
+
+    async def accept_trade(self, trade_id: int) -> bool:
+        """Accept an incoming champion trade offer."""
+        return False
+
+    async def decline_trade(self, trade_id: int) -> bool:
+        """Decline an incoming champion trade offer."""
+        return False
 
     # ========================================================================
     # Runes & Summoner Spells Contract
