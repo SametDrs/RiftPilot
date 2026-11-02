@@ -12,7 +12,7 @@ a = Analysis(
     ['src/riftpilot/desktop_app.py'],
     pathex=[src_dir],
     binaries=[],
-    datas=[],
+    datas=[("src/riftpilot/adapters/static", "riftpilot/adapters/static")],
     hiddenimports=[
         'uvicorn.logging',
         'uvicorn.loops',
