@@ -40,6 +40,7 @@ from riftpilot.core.lcu_port import (
     LcuConnectionStatus,
 )
 from riftpilot.core.pairing import DeviceSession, OTTManager, SessionManager
+from riftpilot.core.transport import ITunnelPort, TunnelInfo, TunnelStatus
 from riftpilot.core.runes_spells import (
     RunePage,
     SummonerSpell,
@@ -2397,6 +2398,7 @@ def create_app(
     ott_manager: OTTManager,
     session_manager: SessionManager,
     lcu_adapter: ILcuPort | None = None,
+    tunnel_adapter: ITunnelPort | None = None,
     ui_bridge: Any = None,
     enable_monitor: bool = True,
     poll_interval: float = 1.0,
@@ -2954,6 +2956,31 @@ def create_app(
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
         success = await lcu_adapter.honor_player(payload.summonerId, payload.honorCategory)
         return {"success": success, "summonerId": payload.summonerId, "category": payload.honorCategory}
+
+
+    # =========================================================================
+    # WAN Remote Relay Endpoints (Milestone 6 - ADR-0003)
+    # =========================================================================
+
+    @app.get("/api/wan/status")
+    async def get_wan_status_endpoint() -> dict[str, Any]:
+        """Retrieve status of the WAN reverse tunnel."""
+        if tunnel_adapter is None:
+            return {"tunnel": None, "available": False}
+        info = await tunnel_adapter.get_tunnel_info()
+        return {"tunnel": info.model_dump(), "available": True}
+
+    @app.post("/api/wan/toggle")
+    async def toggle_wan_endpoint(enable: bool = True, port: int = 8000) -> dict[str, Any]:
+        """Start or stop the WAN reverse tunnel."""
+        if tunnel_adapter is None:
+            raise HTTPException(status_code=503, detail="WAN tunnel adapter not configured")
+        if enable:
+            info = await tunnel_adapter.start_tunnel(local_port=port)
+        else:
+            await tunnel_adapter.stop_tunnel()
+            info = await tunnel_adapter.get_tunnel_info()
+        return {"tunnel": info.model_dump()}
 
     # =========================================================================
     # WebSocket Route
