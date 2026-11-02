@@ -2,7 +2,7 @@
 
 **Tarih:** 2026-11-02  
 **Geliştirme Modeli:** Tam Otonom Subagent Orkestrasyonu (Agent A, Agent B, Agent C & Ana Entegrasyon)  
-**Test Durumu:** 484/484 Birim ve Entegrasyon Testi Başarılı (%100 Başarı)
+**Test Durumu:** 557/557 Birim ve Entegrasyon Testi Başarılı (%100 Başarı)
 
 ---
 
@@ -87,7 +87,10 @@ Kullanıcı tarafından talep edilen 12 kritik ister ve hata düzeltmesi eksiksi
 | `test_desktop_ui.py` | 20 | 20/20 GEÇTİ |
 | `test_riot_lcu_adapter.py` | 52 | 52/52 GEÇTİ |
 | `test_mock_lcu.py` | 37 | 37/37 GEÇTİ |
-| **Toplam Proje Regresyon Paketi** | **487** | **487/487 GEÇTİ (%100)** |
+| `test_domain_timers.py` | 35 | 35/35 GEÇTİ |
+| `test_mobile_modals_responsive.py` | 23 | 23/23 GEÇTİ |
+| `test_desktop_connected_devices.py` | 12 | 12/12 GEÇTİ |
+| **Toplam Proje Regresyon Paketi** | **557** | **557/557 GEÇTİ (%100)** |
 
 ---
 
@@ -130,3 +133,44 @@ Kullanıcı tarafından talep edilen 12 kritik ister ve hata düzeltmesi eksiksi
   - `RiotLcuAdapter.create_lobby` metodu güncellendi: Mevcut çakışan lobi varsa önce silinmesi (`DELETE /lol-lobby/v2/lobby`) ve sıralı modlarda varsayılan rol tercihlerinin ("MIDDLE", "TOP") atanması sağlandı.
   - REST ve WebSocket uç noktalarında LCU bağlı değilse veya kuyruk başlatılamazsa kullanıcıya net Türkçe hata bildirimleri (`showToast(..., 'error')`) döndürüldü.
 
+---
+
+## 5. Mobil Responsive, Kararlı Sayaçlar, Büyük Kabul Popup'ı ve Masaüstü Bağlı Cihazlar Düzeltmesi
+
+### 1. Mobil Arayüzün Responsive Olması
+- Mobil sayfa genişlikleri 320px, 375px, 390px ve 430px ekran genişliklerine tam uyumlu hâle getirildi.
+- `html`, `body` ve `main` üzerinde `overflow-x: hidden` zorunlu kılındı, yatay taşmalar tamamen engellendi.
+- Bütün buton, chip ve etkileşimli alanlara mobil ergonomi standartlarına uygun minimum 44x44px dokunma hedefi (`min-height: 44px`, `min-width: 44px`) uygulandı.
+
+### 2. Sayaçların Kararlı Çalışması ve Ayrıştırılmış Yaşam Döngüsü
+- **QueueTimer** ve **InGameTimer** etki alanı modelleri birbirinden tamamen ayrıştırıldı.
+- Sıra arama süresi ve maç süresi artık render döngüsüne veya basit saniye artışlarına değil, `Date.now() - startTime` / `time.monotonic()` zaman damgası farkına dayalı olarak hesaplanmaktadır.
+- Mobil tarayıcı sekmesi arka plana alınıp tekrar açıldığında zaman aşımı veya donma yaşanmaması için `document.addEventListener('visibilitychange', ...)` ve `window.addEventListener('focus', ...)` dinleyicileri eklendi. Sekme açıldığı anda sayaçlar gerçek zaman farkıyla anında güncellenir.
+
+### 3. Maça Girildiğinde Sade Maç Ekranı (`#inGameView`)
+- Oyuncu maça gerçekten girdiğinde (`phase === 'InProgress'` veya `'GameStart'`), sade ve şık `#inGameView` görünümü açılır:
+  - Başlık: "⚔️ Maçtasın!"
+  - Alt metin: "Maç devam ediyor."
+  - Canlı maç süresi sayacı (`MM:SS`).
+  - Seçilen şampiyon ve koridor bilgileri (biliniyorsa simge, ad ve rol).
+- Maç sona erdiğinde (`WaitingForStats`, `EndOfGame`, `PreEndOfGame`, `None`), uygulama otomatik olarak normal bekleme/lobi ekranına döner.
+
+### 4. Maç Bulunduğunda Büyük Kabul Popup'ı (`#readyCheckModal`)
+- Kabul et butonu artık normal bekleme/arama ekranında kalıcı olarak görünmez; arayüz temizlendi.
+- Maç gerçekten bulunduğunda (`phase === 'ReadyCheck'`), ekranın ortasında dikkat çekici, responsive bir Hextech modal popup açılır:
+  - "⚔️ MAÇ BULUNDU!" başlığı.
+  - SVG tabanlı 10 saniyelik dairesel geri sayım halkası ve uyarı renk geçişi.
+  - Büyük, parlak "Kabul Et" (`#readyAcceptBtn`) butonu.
+  - Riot LCU standartlarına uygun "Reddet" (`#readyDeclineBtn`) butonu.
+- Butonlara tıklandığında mükerrer istekleri engellemek için butonlar devre dışı bırakılır ("İşleniyor...").
+- `POST /api/match/decline` ve `DECLINE_MATCH` WebSocket komutları eklendi (`ILcuPort`, `MockLcuAdapter`, `RiotLcuAdapter`).
+- Kabul veya ret işleminden sonra ya da süre dolduğunda popup temiz bir şekilde kapanır.
+
+### 5. Masaüstü Bağlı Cihazlar Bölümü ve "✕ Bağlantıyı Kes" Butonu
+- `QListWidget` özel widget kullanıldığında arka plandaki metin delegesini çizen çift metin bug'ı çözüldü (`item.setForeground(Qt.GlobalColor.transparent)` ve opak `row_widget`).
+- Cihaz satırı dikeyde iki sütunlu düzene kavuşturuldu:
+  - Sol sütun: Cihaz simgesi (`📱`), kalın cihaz adı (uzun isimlerde 22 karakterden sonra `...` ile kısaltma ve tam isim tooltip'i), alt başlık (`🟢 Mobil Web Paneli • Çevrimiçi`).
+  - Sağ sütun: "✕ Bağlantıyı Kes" butonu (`revoke_btn`).
+- `#revokeBtn` CSS stillendirmesi düzeltildi: Görünür metin rengi (`#ff8595` / `#ffffff`), net sınırlar, dolgu, minimum 115x28px boyutları ve `:hover`, `:pressed`, `:disabled` durumları ile kırmızı boş kutu görünümü tamamen giderildi.
+- Satır yüksekliği `item.setSizeHint(QSize(0, 58))` ile sabitlenerek dikey sıkışmalar önlendi.
+- Masaüstü penceresi `InProgress` durumunda `"⚔️ Maçtasın! (Maç Devam Ediyor)"` gösterimine kavuşturuldu.
