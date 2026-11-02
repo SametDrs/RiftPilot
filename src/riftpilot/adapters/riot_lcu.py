@@ -423,6 +423,8 @@ class RiotLcuAdapter(ILcuPort):
         """Swap current champion with one from the ARAM bench."""
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return False
+        if champion_id <= 0:
+            return False
         try:
             resp = await self._client.post(
                 f"/lol-champ-select/v1/session/bench/swap/{champion_id}"
@@ -488,6 +490,19 @@ class RiotLcuAdapter(ILcuPort):
             return []
 
     async def request_trade(self, trade_id: int) -> bool:
+        return await self.request_champ_trade(trade_id)
+
+    async def accept_trade(self, trade_id: int) -> bool:
+        return await self.accept_champ_trade(trade_id)
+
+    async def decline_trade(self, trade_id: int) -> bool:
+        return await self.decline_champ_trade(trade_id)
+
+    async def cancel_trade(self, trade_id: int) -> bool:
+        return await self.cancel_champ_trade(trade_id)
+
+    async def request_champ_trade(self, trade_id: int) -> bool:
+        """Request or initiate a champion trade offer with a teammate via LCU REST API."""
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return False
         try:
@@ -499,7 +514,8 @@ class RiotLcuAdapter(ILcuPort):
             logger.warning("Failed to request trade %d: %s", trade_id, exc)
             return False
 
-    async def accept_trade(self, trade_id: int) -> bool:
+    async def accept_champ_trade(self, trade_id: int) -> bool:
+        """Accept an incoming champion trade offer via LCU REST API."""
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return False
         try:
@@ -511,7 +527,8 @@ class RiotLcuAdapter(ILcuPort):
             logger.warning("Failed to accept trade %d: %s", trade_id, exc)
             return False
 
-    async def decline_trade(self, trade_id: int) -> bool:
+    async def decline_champ_trade(self, trade_id: int) -> bool:
+        """Decline an incoming champion trade offer via LCU REST API."""
         if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
             return False
         try:
@@ -521,6 +538,19 @@ class RiotLcuAdapter(ILcuPort):
             return resp.status_code in (200, 204)
         except Exception as exc:
             logger.warning("Failed to decline trade %d: %s", trade_id, exc)
+            return False
+
+    async def cancel_champ_trade(self, trade_id: int) -> bool:
+        """Cancel an outgoing champion trade offer via LCU REST API."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+        try:
+            resp = await self._client.post(
+                f"/lol-champ-select/v1/session/trades/{trade_id}/cancel"
+            )
+            return resp.status_code in (200, 204)
+        except Exception as exc:
+            logger.warning("Failed to cancel trade %d: %s", trade_id, exc)
             return False
 
     # ========================================================================

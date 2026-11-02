@@ -22,10 +22,14 @@ from riftpilot.core.post_game import EndOfGameStats, HonorBallot, HonorCandidate
 from riftpilot.core.lobby import (
     BenchChampion,
     ChampSelectTrade,
+    LaneSwapRequest,
     LobbyData,
     LobbyMember,
     MatchmakingSearchState,
     PositionPreference,
+    TradeState,
+    can_initiate_trade,
+    can_swap_lanes,
 )
 from riftpilot.core.runes_spells import (
     RecommendedRunePage,
@@ -91,6 +95,7 @@ class MockLcuAdapter(ILcuPort):
             BenchChampion(champion_id=1, champion_name="Annie"),
         ]
         self._trades: list[ChampSelectTrade] = []
+        self._lane_swap_requests: list[LaneSwapRequest] = []
         self._eog_subscribers: list[Callable[[EndOfGameStats | None], Any]] = []
         self._eog_stats: EndOfGameStats | None = None
         self._honor_ballot: HonorBallot | None = None
@@ -178,7 +183,7 @@ class MockLcuAdapter(ILcuPort):
     # ========================================================================
 
     async def get_champ_select_session(self) -> ChampSelectSession | None:
-        """Return current champion select session, or None if inactive."""
+        """Return current mock champion select session, or None if inactive."""
         if self._status != LcuConnectionStatus.CONNECTED:
             return None
         return self._champ_select_session
@@ -189,9 +194,8 @@ class MockLcuAdapter(ILcuPort):
         champion_id: int,
         completed: bool = True,
     ) -> bool:
-        """Perform hover or lock-in for a pick or ban action."""
+        """Perform hover or lock-in on the active champion select session."""
         if self._status != LcuConnectionStatus.CONNECTED:
-            logger.warning("patch_champ_select_action failed: adapter disconnected.")
             return False
 
         if self._champ_select_session is None:
@@ -423,11 +427,14 @@ class MockLcuAdapter(ILcuPort):
                 logger.warning("Error in lobby subscriber callback: %s", e)
 
     # ========================================================================
-    # ARAM Bench & Trades Implementation (Milestone 4)
+    # ARAM Bench & Trades Implementation (Milestone 4 & Agent C)
     # ========================================================================
 
     async def bench_swap(self, champion_id: int) -> bool:
+        """Swap current champion with one from the ARAM bench with protective checks."""
         if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        if champion_id <= 0:
             return False
         bench_match = next((b for b in self._bench_champions if b.champion_id == champion_id), None)
         if not bench_match:
@@ -461,17 +468,157 @@ class MockLcuAdapter(ILcuPort):
     async def request_trade(self, trade_id: int) -> bool:
         if self._status != LcuConnectionStatus.CONNECTED:
             return False
+        for idx, t in enumerate(self._trades):
+            if t.trade_id == trade_id:
+                self._trades[idx] = ChampSelectTrade(
+                    trade_id=t.trade_id,
+                    cell_id=t.cell_id,
+                    state=TradeState.SENT,
+                )
+                return True
+        self._trades.append(
+            ChampSelectTrade(
+                trade_id=trade_id,
+                cell_id=1,
+                state=TradeState.SENT,
+            )
+        )
         return True
 
     async def accept_trade(self, trade_id: int) -> bool:
         if self._status != LcuConnectionStatus.CONNECTED:
             return False
+        target_trade = None
+        for idx, t in enumerate(self._trades):
+            if t.trade_id == trade_id:
+                target_trade = ChampSelectTrade(
+                    trade_id=t.trade_id,
+                    cell_id=t.cell_id,
+                    state=TradeState.ACCEPTED,
+                )
+                self._trades[idx] = target_trade
+                break
+        if target_trade is None:
+            return False
+
+        # If champ select session is active, swap champions between local player and teammate
+        if self._champ_select_session:
+            local_p = self._champ_select_session.get_local_player()
+            teammate = next(
+                (p for p in self._champ_select_session.my_team if p.cell_id == target_trade.cell_id),
+                None,
+            )
+            if local_p and teammate:
+                local_champ = local_p.champion_id or local_p.champion_pick_intent
+                target_champ = teammate.champion_id or teammate.champion_pick_intent
+                local_p.champion_id = target_champ
+                local_p.champion_pick_intent = target_champ
+                teammate.champion_id = local_champ
+                teammate.champion_pick_intent = local_champ
+                await self._dispatch_champ_select(self._champ_select_session)
         return True
 
     async def decline_trade(self, trade_id: int) -> bool:
         if self._status != LcuConnectionStatus.CONNECTED:
             return False
-        return True
+        for idx, t in enumerate(self._trades):
+            if t.trade_id == trade_id:
+                self._trades[idx] = ChampSelectTrade(
+                    trade_id=t.trade_id,
+                    cell_id=t.cell_id,
+                    state=TradeState.DECLINED,
+                )
+                return True
+        return False
+
+    async def cancel_trade(self, trade_id: int) -> bool:
+        if self._status != LcuConnectionStatus.CONNECTED:
+            return False
+        for idx, t in enumerate(self._trades):
+            if t.trade_id == trade_id:
+                self._trades[idx] = ChampSelectTrade(
+                    trade_id=t.trade_id,
+                    cell_id=t.cell_id,
+                    state=TradeState.CANCELED,
+                )
+                return True
+        return False
+
+    async def request_champ_trade(self, trade_id: int) -> bool:
+        return await self.request_trade(trade_id)
+
+    async def accept_champ_trade(self, trade_id: int) -> bool:
+        return await self.accept_trade(trade_id)
+
+    async def decline_champ_trade(self, trade_id: int) -> bool:
+        return await self.decline_trade(trade_id)
+
+    async def cancel_champ_trade(self, trade_id: int) -> bool:
+        return await self.cancel_trade(trade_id)
+
+    async def simulate_request_trade(self, trade_id: int, cell_id: int) -> ChampSelectTrade:
+        """Simulate an incoming or available champion trade request."""
+        trade = ChampSelectTrade(trade_id=trade_id, cell_id=cell_id, state=TradeState.RECEIVED)
+        for idx, t in enumerate(self._trades):
+            if t.trade_id == trade_id:
+                self._trades[idx] = trade
+                return trade
+        self._trades.append(trade)
+        return trade
+
+    async def simulate_trade_request(self, trade_id: int, cell_id: int) -> ChampSelectTrade:
+        return await self.simulate_request_trade(trade_id, cell_id)
+
+    async def simulate_accept_trade(self, trade_id: int) -> bool:
+        """Simulate teammate or client accepting trade offer."""
+        return await self.accept_trade(trade_id)
+
+    async def simulate_trade_accept(self, trade_id: int) -> bool:
+        return await self.simulate_accept_trade(trade_id)
+
+    async def simulate_decline_trade(self, trade_id: int) -> bool:
+        """Simulate teammate or client declining trade offer."""
+        return await self.decline_trade(trade_id)
+
+    async def simulate_trade_decline(self, trade_id: int) -> bool:
+        return await self.simulate_decline_trade(trade_id)
+
+    async def simulate_cancel_trade(self, trade_id: int) -> bool:
+        """Simulate initiator canceling trade offer."""
+        return await self.cancel_trade(trade_id)
+
+    async def simulate_request_lane_swap(
+        self, from_cell_id: int, to_cell_id: int
+    ) -> LaneSwapRequest:
+        """Simulate a lane swap request between two teammates."""
+        from_pos = ""
+        to_pos = ""
+        if self._champ_select_session:
+            p1 = next((p for p in self._champ_select_session.my_team if p.cell_id == from_cell_id), None)
+            p2 = next((p for p in self._champ_select_session.my_team if p.cell_id == to_cell_id), None)
+            if p1 and p2:
+                from_pos = p1.assigned_position
+                to_pos = p2.assigned_position
+                p1.assigned_position, p2.assigned_position = to_pos, from_pos
+                await self._dispatch_champ_select(self._champ_select_session)
+
+        req = LaneSwapRequest(
+            from_cell_id=from_cell_id,
+            to_cell_id=to_cell_id,
+            from_assigned_position=from_pos,
+            to_assigned_position=to_pos,
+            status="PENDING",
+        )
+        self._lane_swap_requests.append(req)
+        return req
+
+    async def simulate_lane_swap(
+        self, from_cell_id: int, to_cell_id: int
+    ) -> LaneSwapRequest:
+        return await self.simulate_request_lane_swap(from_cell_id, to_cell_id)
+
+    def get_lane_swap_requests(self) -> list[LaneSwapRequest]:
+        return list(self._lane_swap_requests)
 
     async def simulate_lobby(self, lobby: LobbyData | None) -> None:
         self._lobby_data = lobby
@@ -489,11 +636,6 @@ class MockLcuAdapter(ILcuPort):
 
     def set_trades(self, trades: list[ChampSelectTrade]) -> None:
         self._trades = list(trades)
-
-    # ========================================================================
-    # Test Simulation Helpers
-    # ========================================================================
-
 
     # ========================================================================
     # Post-Game Stats & Honor Implementation (Milestone 5)
@@ -565,6 +707,7 @@ class MockLcuAdapter(ILcuPort):
         self.current_rune_page = None
         self._eog_stats = None
         self._honor_ballot = None
+        self._lane_swap_requests = []
         await self._dispatch_champ_select(None)
         logger.info("Mock LCU disconnected.")
 
