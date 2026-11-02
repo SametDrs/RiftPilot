@@ -80,6 +80,11 @@ class ILcuPort(ABC):
         ...
 
     @abstractmethod
+    async def decline_ready_check(self) -> bool:
+        """Decline an active ready check (match found) prompt."""
+        ...
+
+    @abstractmethod
     def subscribe_phase_change(
         self, callback: Callable[[GameflowPhase], Any]
     ) -> None:

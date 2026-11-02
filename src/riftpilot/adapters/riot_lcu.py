@@ -308,6 +308,34 @@ class RiotLcuAdapter(ILcuPort):
 
         return False
 
+    async def decline_ready_check(self) -> bool:
+        """Decline an active ready check prompt on the League Client."""
+        if self._status != LcuConnectionStatus.CONNECTED or self._client is None:
+            return False
+
+        try:
+            response = await self._client.post("/lol-matchmaking/v1/ready-check/decline")
+        except httpx.ConnectError as exc:
+            logger.warning("LCU connection dropped during decline_ready_check: %s", exc)
+            self._status = LcuConnectionStatus.DISCONNECTED
+            return False
+        except httpx.TimeoutException as exc:
+            logger.warning("LCU request timed out during decline_ready_check: %s", exc)
+            return False
+        except Exception as exc:
+            logger.warning("Unexpected error during decline_ready_check: %s", exc)
+            return False
+
+        if response.status_code in (200, 204):
+            return True
+
+        if response.status_code in (401, 403):
+            logger.warning("LCU authentication failed during decline_ready_check (status %d)", response.status_code)
+            self._status = LcuConnectionStatus.AUTHENTICATION_FAILED
+            return False
+
+        return False
+
     def subscribe_phase_change(
         self, callback: Callable[[GameflowPhase], Any]
     ) -> None:

@@ -162,6 +162,35 @@ class MockLcuAdapter(ILcuPort):
         logger.info("Mock ready check accepted successfully.")
         return True
 
+    async def decline_ready_check(self) -> bool:
+        """Decline an active ready check if connected and ready check is active."""
+        if self._status != LcuConnectionStatus.CONNECTED:
+            logger.warning("decline_ready_check rejected: adapter is not connected.")
+            return False
+
+        if (
+            self._phase != GameflowPhase.READY_CHECK
+            and self.ready_check.get("state") != "InProgress"
+            and self.ready_check_state != "InProgress"
+        ):
+            logger.warning("decline_ready_check rejected: no active ready check.")
+            return False
+
+        self.player_response = "Declined"
+        self.ready_check_state = "Declined"
+        self.ready_check["playerResponse"] = "Declined"
+        self.ready_check["state"] = "Declined"
+
+        target_phase = (
+            GameflowPhase.LOBBY if self._lobby_data is not None else GameflowPhase.NONE
+        )
+        await self.simulate_phase_change(target_phase)
+        logger.info(
+            "Mock ready check declined successfully, phase returned to %s.",
+            target_phase.value,
+        )
+        return True
+
     def subscribe_phase_change(
         self, callback: Callable[[GameflowPhase], Any]
     ) -> None:
