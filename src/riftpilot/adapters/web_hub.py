@@ -6,9 +6,12 @@ Provides the LAN HTTP and WebSocket server for mobile clients:
 - Establishes authenticated, zero-trust bidirectional WebSockets (`GET /ws`).
 - Broadcasts real-time LCU gameflow events and processes remote commands
   such as match acceptance (`ACCEPT_READY_CHECK`).
-- Provides Champion Select remote orchestration: live session updates,
-  champion grid search/filtering, hover, and one-tap lock-in / ban.
-- Runs background LCU auto-discovery, connection monitoring, and synchronization.
+- Provides Mode-Aware Champion Select remote orchestration:
+  - Central state model (`modeContext`, `eligibility`, `session`) shared across LCU/Desktop/Mobile.
+  - Game-mode-filtered summoner spells (e.g., ARAM vs Classic) with server validation.
+  - Official 3 recommended rune pages from LCU (never fabricated or auto-applied).
+  - Mode-specific UI layouts (Ranked/Draft, Blind Pick, ARAM/ARAM Şamata, Safe Generic).
+  - Strict server-side re-verification before every pick, ban, spell, or rune command.
 """
 
 from __future__ import annotations
@@ -26,12 +29,22 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from riftpilot.core.champ_select import ChampSelectSession, ChampionSummary
+from riftpilot.core.game_mode import (
+    GameModeContext,
+    compute_champ_select_stage_and_eligibility,
+    validate_champ_select_command,
+)
 from riftpilot.core.lcu_port import (
     GameflowPhase,
     ILcuPort,
     LcuConnectionStatus,
 )
 from riftpilot.core.pairing import DeviceSession, OTTManager, SessionManager
+from riftpilot.core.runes_spells import (
+    RunePage,
+    SummonerSpell,
+    get_spells_for_mode,
+)
 
 logger = logging.getLogger("RiftPilot.WebHub")
 
@@ -39,25 +52,43 @@ INDEX_HTML = """<!DOCTYPE html>
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RiftPilot — Hextech Mobil Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#060910">
+    <title>RiftPilot — Hextech League Companion</title>
     <style>
         :root {
-            --bg-primary: #091428;
-            --bg-secondary: #0a1428;
-            --card-bg: #111a2e;
+            /* Palette Design Tokens (LeagueCompanion / Hextech Dark) */
+            --bg-abyss: #060910;
+            --bg-primary: #0a101d;
+            --bg-secondary: #0e172a;
+            --card-bg: rgba(15, 23, 42, 0.85);
+            --card-border: rgba(200, 170, 110, 0.22);
+            --card-border-active: rgba(10, 200, 185, 0.55);
+
             --gold-1: #f0e6d2;
             --gold-2: #c8aa6e;
             --gold-3: #785a28;
-            --gold-4: #463714;
-            --blue-accent: #0ac8b9;
-            --blue-team: #1a78c2;
-            --red-team: #c83232;
+            --gold-4: rgba(200, 170, 110, 0.15);
+
+            --arcane-cyan: #0ac8b9;
+            --arcane-cyan-glow: rgba(10, 200, 185, 0.35);
+            --blue-team: #2480e6;
+            --red-team: #e84057;
+
             --text-primary: #f0e6d2;
-            --text-secondary: #a09b8c;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+
             --success: #00ff88;
             --danger: #e84057;
-            --radius: 12px;
+
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-pill: 9999px;
+
+            --nav-height: 64px;
+            --transition-fast: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         * {
@@ -66,28 +97,32 @@ INDEX_HTML = """<!DOCTYPE html>
             padding: 0;
             user-select: none;
             -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
         }
 
         body {
-            background: radial-gradient(circle at top, #14223d 0%, #091428 100%);
+            background: radial-gradient(circle at 50% 0%, #111c33 0%, var(--bg-abyss) 85%);
             color: var(--text-primary);
             min-height: 100vh;
+            min-height: -webkit-fill-available;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: space-between;
-            padding: 16px 12px;
+            overflow-x: hidden;
+            padding: 12px 12px calc(var(--nav-height) + 16px) 12px;
         }
 
+        /* Top App Bar Header */
         header {
             width: 100%;
-            max-width: 500px;
+            max-width: 600px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding-bottom: 12px;
-            border-bottom: 1px solid var(--gold-4);
+            padding: 8px 4px 14px 4px;
+            border-bottom: 1px solid var(--card-border);
+            margin-bottom: 12px;
         }
 
         .brand {
@@ -98,24 +133,25 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .brand-icon {
             font-size: 24px;
+            filter: drop-shadow(0 0 8px var(--arcane-cyan-glow));
         }
 
         .brand-title {
-            font-size: 20px;
-            font-weight: 700;
-            letter-spacing: 1px;
+            font-size: 19px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
             background: linear-gradient(180deg, var(--gold-1) 0%, var(--gold-2) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
         .lcu-subbadge {
-            font-size: 11px;
+            font-size: 10px;
             color: var(--text-secondary);
-            margin-top: 2px;
             display: flex;
             align-items: center;
             gap: 4px;
+            font-weight: 600;
         }
 
         .lcu-subbadge.connected {
@@ -127,44 +163,51 @@ INDEX_HTML = """<!DOCTYPE html>
             align-items: center;
             gap: 6px;
             font-size: 11px;
-            font-weight: 600;
-            padding: 4px 10px;
-            border-radius: 20px;
-            background: rgba(10, 20, 40, 0.8);
-            border: 1px solid var(--gold-4);
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: var(--radius-pill);
+            background: rgba(14, 23, 42, 0.8);
+            border: 1px solid var(--card-border);
             color: var(--text-secondary);
         }
 
         .status-dot {
-            width: 7px;
-            height: 7px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            background: #666;
+            background: #64748b;
         }
 
         .status-badge.connected .status-dot {
-            background: var(--blue-accent);
-            box-shadow: 0 0 8px var(--blue-accent);
+            background: var(--arcane-cyan);
+            box-shadow: 0 0 10px var(--arcane-cyan);
         }
 
         .status-badge.connected {
-            border-color: var(--blue-accent);
+            border-color: var(--arcane-cyan);
             color: var(--gold-1);
         }
 
         .status-badge.error .status-dot {
             background: var(--danger);
+            box-shadow: 0 0 10px var(--danger);
         }
 
         main {
             width: 100%;
-            max-width: 500px;
+            max-width: 600px;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            gap: 16px;
-            margin: auto 0;
-            padding: 10px 0;
+            gap: 14px;
+            flex: 1;
+        }
+
+        /* Tab Content Containers */
+        .tab-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
 
         /* Standard Gameflow View */
@@ -173,29 +216,32 @@ INDEX_HTML = """<!DOCTYPE html>
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 20px;
+            gap: 18px;
+            padding: 8px 0;
         }
 
         .phase-card {
             width: 100%;
             background: var(--card-bg);
-            border: 1px solid var(--gold-4);
-            border-radius: var(--radius);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-lg);
             padding: 24px;
             text-align: center;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
             transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
         }
 
         .phase-card.ready-check-active {
             border-color: var(--gold-2);
-            box-shadow: 0 0 30px rgba(200, 170, 110, 0.4);
+            box-shadow: 0 0 35px rgba(200, 170, 110, 0.45);
             animation: pulse-border 1.5s infinite alternate;
         }
 
         @keyframes pulse-border {
-            0% { border-color: var(--gold-3); box-shadow: 0 0 15px rgba(200, 170, 110, 0.2); }
-            100% { border-color: var(--gold-1); box-shadow: 0 0 35px rgba(200, 170, 110, 0.6); }
+            0% { border-color: var(--gold-3); box-shadow: 0 0 16px rgba(200, 170, 110, 0.25); }
+            100% { border-color: var(--gold-1); box-shadow: 0 0 40px rgba(200, 170, 110, 0.7); }
         }
 
         .phase-label {
@@ -203,13 +249,15 @@ INDEX_HTML = """<!DOCTYPE html>
             text-transform: uppercase;
             letter-spacing: 2px;
             color: var(--gold-2);
+            font-weight: 700;
             margin-bottom: 8px;
         }
 
         .phase-value {
-            font-size: 24px;
-            font-weight: 700;
+            font-size: 26px;
+            font-weight: 800;
             color: var(--gold-1);
+            letter-spacing: 0.5px;
         }
 
         .action-area {
@@ -217,24 +265,24 @@ INDEX_HTML = """<!DOCTYPE html>
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
         }
 
         .btn-accept {
             width: 100%;
-            height: 84px;
-            border-radius: var(--radius);
-            font-size: 22px;
+            height: 80px;
+            border-radius: var(--radius-lg);
+            font-size: 20px;
             font-weight: 800;
             letter-spacing: 2px;
             text-transform: uppercase;
             border: 2px solid var(--gold-2);
-            background: linear-gradient(180deg, #1e3a5f 0%, #0d1e38 100%);
+            background: linear-gradient(180deg, #16243d 0%, #0d1527 100%);
             color: var(--gold-1);
             cursor: pointer;
             outline: none;
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            transition: transform 0.15s ease, box-shadow 0.2s ease;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -247,9 +295,9 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .btn-accept.active {
             background: linear-gradient(180deg, #c8aa6e 0%, #785a28 100%);
-            color: #091428;
+            color: #070b13;
             border-color: #f0e6d2;
-            box-shadow: 0 0 25px rgba(200, 170, 110, 0.7);
+            box-shadow: 0 0 30px rgba(200, 170, 110, 0.8);
             animation: pulse-btn 1s infinite alternate;
         }
 
@@ -257,7 +305,7 @@ INDEX_HTML = """<!DOCTYPE html>
             background: linear-gradient(180deg, #00b060 0%, #006030 100%);
             color: white;
             border-color: var(--success);
-            box-shadow: 0 0 25px rgba(0, 255, 136, 0.5);
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.6);
             animation: none;
         }
 
@@ -269,7 +317,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
         @keyframes pulse-btn {
             0% { transform: scale(1); filter: brightness(1); }
-            100% { transform: scale(1.03); filter: brightness(1.2); }
+            100% { transform: scale(1.02); filter: brightness(1.25); }
         }
 
         .info-card {
@@ -278,25 +326,75 @@ INDEX_HTML = """<!DOCTYPE html>
             color: var(--text-secondary);
             text-align: center;
             line-height: 1.6;
-        }
-
-        /* Champion Select View */
-        #champSelectView {
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .cs-top-bar {
-            width: 100%;
             background: var(--card-bg);
-            border: 1px solid var(--gold-4);
-            border-radius: var(--radius);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 12px;
+        }
+
+        /* Mode-Aware Top Banner */
+        .game-mode-banner {
+            width: 100%;
+            background: linear-gradient(90deg, rgba(200, 170, 110, 0.15) 0%, rgba(10, 200, 185, 0.12) 100%);
+            border: 1px solid var(--gold-2);
+            border-radius: var(--radius-md);
             padding: 10px 14px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            backdrop-filter: blur(8px);
+        }
+
+        .game-mode-name {
+            font-weight: 800;
+            color: var(--gold-1);
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            font-size: 13px;
+        }
+
+        .game-mode-stage {
+            font-size: 11px;
+            color: var(--arcane-cyan);
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            background: rgba(10, 200, 185, 0.14);
+            border: 1px solid var(--arcane-cyan);
+            border-radius: var(--radius-pill);
+            padding: 3px 10px;
+        }
+
+        .error-toast {
+            width: 100%;
+            background: rgba(232, 64, 87, 0.22);
+            border: 1px solid var(--danger);
+            border-radius: var(--radius-md);
+            padding: 10px 14px;
+            color: #ff9aa8;
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+            display: none;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Champion Select Top Bar */
+        .cs-top-bar {
+            width: 100%;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(8px);
         }
 
         .cs-badges {
@@ -307,17 +405,17 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .cs-badge {
             font-size: 11px;
-            font-weight: 700;
-            padding: 4px 8px;
-            border-radius: 4px;
+            font-weight: 800;
+            padding: 4px 10px;
+            border-radius: var(--radius-pill);
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
         }
 
         .cs-badge.pick {
-            background: rgba(10, 200, 185, 0.2);
-            border: 1px solid var(--blue-accent);
-            color: var(--blue-accent);
+            background: rgba(10, 200, 185, 0.18);
+            border: 1px solid var(--arcane-cyan);
+            color: var(--arcane-cyan);
         }
 
         .cs-badge.ban {
@@ -328,22 +426,23 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .cs-badge.pos {
             background: rgba(200, 170, 110, 0.15);
-            border: 1px solid var(--gold-3);
-            color: var(--gold-2);
+            border: 1px solid var(--gold-2);
+            color: var(--gold-1);
         }
 
         .cs-timer-badge {
-            font-size: 20px;
+            font-size: 22px;
             font-weight: 800;
             color: var(--gold-1);
-            min-width: 44px;
+            min-width: 48px;
             text-align: right;
+            font-family: "Cascadia Code", "Consolas", monospace;
         }
 
         .cs-progress-container {
             width: 100%;
             height: 4px;
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.08);
             border-radius: 2px;
             overflow: hidden;
             margin-top: -6px;
@@ -353,9 +452,10 @@ INDEX_HTML = """<!DOCTYPE html>
             height: 100%;
             width: 100%;
             background: var(--gold-2);
-            transition: width 0.3s linear;
+            transition: width 0.3s linear, background-color 0.3s ease;
         }
 
+        /* Teams Summary Grid */
         .teams-summary {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -364,10 +464,10 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .team-box {
-            background: rgba(10, 20, 40, 0.6);
-            border: 1px solid var(--gold-4);
-            border-radius: 8px;
-            padding: 6px 8px;
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 8px 10px;
             font-size: 11px;
         }
 
@@ -380,19 +480,20 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .team-header-title {
-            font-weight: 700;
-            margin-bottom: 4px;
+            font-weight: 800;
+            margin-bottom: 6px;
             color: var(--gold-2);
             text-transform: uppercase;
             font-size: 10px;
+            letter-spacing: 0.5px;
         }
 
         .member-row {
             display: flex;
             align-items: center;
             gap: 6px;
-            padding: 3px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
         }
 
         .member-row:last-child {
@@ -401,8 +502,9 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .member-pos {
             font-size: 9px;
-            color: var(--text-secondary);
-            width: 16px;
+            font-weight: 700;
+            color: var(--text-muted);
+            width: 18px;
             text-transform: uppercase;
         }
 
@@ -415,190 +517,682 @@ INDEX_HTML = """<!DOCTYPE html>
             flex: 1;
         }
 
-        .member-row.is-me {
-            color: var(--blue-accent);
-            font-weight: bold;
-        }
-
         .member-row.is-me .member-champ {
-            color: var(--blue-accent);
+            color: var(--arcane-cyan);
+            font-weight: 800;
         }
 
+        /* Search Box & Role Filter Pills */
         .champ-search-box {
             width: 100%;
-            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
 
         .champ-search-input {
             width: 100%;
             background: var(--card-bg);
             border: 1px solid var(--gold-3);
-            border-radius: 8px;
-            padding: 10px 14px;
+            border-radius: var(--radius-md);
+            padding: 12px 16px;
             color: var(--text-primary);
             font-size: 14px;
+            font-weight: 600;
             outline: none;
             box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+            transition: border-color var(--transition-fast);
         }
 
         .champ-search-input:focus {
-            border-color: var(--blue-accent);
+            border-color: var(--arcane-cyan);
+            box-shadow: 0 0 12px var(--arcane-cyan-glow);
         }
 
+        .role-filters-row {
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            scrollbar-width: none;
+        }
+        .role-filters-row::-webkit-scrollbar {
+            display: none;
+        }
+
+        .role-pill {
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-pill);
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all var(--transition-fast);
+        }
+
+        .role-pill.active {
+            background: rgba(10, 200, 185, 0.2);
+            border-color: var(--arcane-cyan);
+            color: var(--arcane-cyan);
+        }
+
+        /* Champion Grid */
         .champ-grid-container {
             width: 100%;
-            max-height: 230px;
+            max-height: 250px;
             overflow-y: auto;
-            border: 1px solid var(--gold-4);
-            border-radius: var(--radius);
-            background: rgba(10, 20, 40, 0.7);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            background: rgba(10, 16, 29, 0.75);
             padding: 8px;
         }
 
         .champ-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
             gap: 6px;
         }
 
         .champ-item {
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
-            background: rgba(17, 26, 46, 0.9);
-            border: 1px solid var(--gold-4);
-            border-radius: 6px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-sm);
             padding: 4px;
             cursor: pointer;
             transition: all 0.15s ease;
         }
 
         .champ-item:active {
-            transform: scale(0.95);
+            transform: scale(0.94);
         }
 
         .champ-item.selected {
-            border-color: var(--gold-1);
-            box-shadow: 0 0 10px rgba(240, 230, 210, 0.8);
-            background: rgba(30, 58, 95, 0.8);
+            border-color: var(--arcane-cyan);
+            box-shadow: 0 0 14px var(--arcane-cyan-glow);
+            background: rgba(10, 200, 185, 0.15);
         }
 
-        .champ-item.banned {
-            opacity: 0.3;
+        .champ-item.banned, .champ-item.unavailable {
+            opacity: 0.35;
             filter: grayscale(1);
+            cursor: not-allowed;
             pointer-events: none;
         }
 
+        .champ-ban-badge {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: rgba(232, 64, 87, 0.95);
+            color: white;
+            font-size: 8px;
+            font-weight: 800;
+            padding: 1px 4px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
         .champ-img {
-            width: 44px;
-            height: 44px;
-            border-radius: 4px;
+            width: 48px;
+            height: 48px;
+            border-radius: 6px;
             object-fit: cover;
-            background: #111a2e;
+            background: #080d16;
         }
 
         .champ-name {
             font-size: 10px;
             color: var(--text-primary);
             text-align: center;
-            margin-top: 3px;
+            margin-top: 4px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             width: 100%;
+            font-weight: 600;
         }
 
+        /* Bottom Floating / Fixed Action Panel (Ergonomic Thumb Reach) */
         .cs-action-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid var(--gold-2);
+            border-radius: var(--radius-lg);
+            padding: 10px 14px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(12px);
+        }
+
+        .cs-action-row {
             width: 100%;
             display: flex;
             gap: 10px;
             align-items: center;
-            background: var(--card-bg);
-            border: 1px solid var(--gold-3);
-            border-radius: var(--radius);
-            padding: 8px 12px;
         }
 
         .cs-selected-preview {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             flex: 1;
             overflow: hidden;
         }
 
         .cs-preview-img {
-            width: 38px;
-            height: 38px;
-            border-radius: 6px;
-            border: 1px solid var(--gold-3);
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--gold-2);
             object-fit: cover;
-            background: #111a2e;
+            background: #080d16;
         }
 
         .cs-preview-name {
-            font-size: 13px;
-            font-weight: 700;
+            font-size: 14px;
+            font-weight: 800;
             color: var(--gold-1);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
-        .cs-btn-lock {
+        .cs-btn-lock, .cs-btn-ban {
             height: 48px;
-            padding: 0 20px;
-            border-radius: 8px;
+            min-width: 110px;
+            padding: 0 18px;
+            border-radius: var(--radius-md);
             font-size: 15px;
             font-weight: 800;
             letter-spacing: 1px;
             text-transform: uppercase;
-            border: 1px solid var(--gold-2);
-            background: linear-gradient(180deg, #c8aa6e 0%, #785a28 100%);
-            color: #091428;
             cursor: pointer;
             outline: none;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-            transition: all 0.2s;
+            transition: all var(--transition-fast);
         }
 
-        .cs-btn-lock.ban {
+        .cs-btn-ban {
             background: linear-gradient(180deg, #e84057 0%, #8a1f2e 100%);
-            border-color: #ff7888;
+            border: 1px solid #ff7888;
             color: white;
-            box-shadow: 0 0 15px rgba(232, 64, 87, 0.5);
+            box-shadow: 0 0 15px rgba(232, 64, 87, 0.45);
         }
 
-        .cs-btn-lock.pick {
+        .cs-btn-lock {
             background: linear-gradient(180deg, #0ac8b9 0%, #00605a 100%);
-            border-color: #6efff4;
+            border: 1px solid #6efff4;
             color: white;
-            box-shadow: 0 0 15px rgba(10, 200, 185, 0.5);
+            box-shadow: 0 0 15px rgba(10, 200, 185, 0.45);
         }
 
-        .cs-btn-lock:disabled {
-            opacity: 0.4;
+        .cs-btn-lock:active:not(:disabled), .cs-btn-ban:active:not(:disabled) {
+            transform: scale(0.96);
+        }
+
+        .cs-btn-lock:disabled, .cs-btn-ban:disabled {
+            opacity: 0.35;
             cursor: not-allowed;
-            background: #1e3a5f;
-            border-color: var(--gold-4);
-            color: var(--text-secondary);
+            background: #1e293b;
+            border-color: var(--card-border);
+            color: var(--text-muted);
             box-shadow: none;
         }
 
-        footer {
-            width: 100%;
-            max-width: 500px;
-            text-align: center;
+        .cs-action-reason {
             font-size: 11px;
-            color: var(--gold-4);
+            color: var(--text-secondary);
+            text-align: right;
+            font-weight: 600;
+        }
+
+        /* Loadout (Spells & 3 Official Recommended Rune Pages) */
+        .loadout-bar {
+            width: 100%;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-lg);
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            backdrop-filter: blur(10px);
+        }
+
+        .loadout-top-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .spells-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .spell-slot {
+            position: relative;
+            width: 48px;
+            height: 48px;
+            border-radius: var(--radius-md);
+            border: 2px solid var(--gold-2);
+            background: #000;
+            cursor: pointer;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all var(--transition-fast);
+        }
+
+        .spell-slot:active {
+            transform: scale(0.92);
+            border-color: var(--arcane-cyan);
+        }
+
+        .spell-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .spell-key-badge {
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--gold-1);
+            font-size: 10px;
+            font-weight: 800;
+            padding: 1px 4px;
+            border-radius: 4px;
+            border: 1px solid var(--card-border);
+            pointer-events: none;
+        }
+
+        /* 3 Recommended Rune Pages Section */
+        .runes-section {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            border-top: 1px solid rgba(200, 170, 110, 0.2);
             padding-top: 10px;
+        }
+
+        .runes-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .runes-title {
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--gold-2);
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+        }
+
+        .runes-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            width: 100%;
+        }
+
+        .rune-card {
+            background: rgba(14, 23, 42, 0.9);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 8px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            transition: all var(--transition-fast);
+            min-height: 80px;
+        }
+
+        .rune-card:active {
+            transform: scale(0.96);
+        }
+
+        .rune-card.selected {
+            border-color: var(--arcane-cyan);
+            background: rgba(10, 200, 185, 0.15);
+            box-shadow: 0 0 12px var(--arcane-cyan-glow);
+        }
+
+        .rune-card-keystone {
+            font-size: 11px;
+            font-weight: 800;
+            color: var(--gold-1);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .rune-card-trees {
+            font-size: 9px;
+            color: var(--arcane-cyan);
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .rune-card-perks {
+            font-size: 9px;
+            color: var(--text-secondary);
+            line-height: 1.3;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .runes-empty-msg {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 10px 0;
+            line-height: 1.5;
+        }
+
+        .btn-apply-runes {
+            background: linear-gradient(135deg, #c8aa6e 0%, #785a28 100%);
+            border: 1px solid var(--gold-1);
+            border-radius: var(--radius-sm);
+            color: #070b13;
+            font-weight: 800;
+            font-size: 11px;
+            padding: 9px 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all var(--transition-fast);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        .btn-apply-runes:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            filter: grayscale(1);
+        }
+
+        .btn-apply-runes:active:not(:disabled) {
+            transform: scale(0.96);
+        }
+
+        .btn-apply-runes.applied {
+            background: linear-gradient(135deg, #00ff88 0%, #008844 100%);
+            border-color: #00ff88;
+            color: #070b13;
+        }
+
+        /* ARAM & Safe Mode Boxes */
+        .aram-bench-box, .safe-mode-box {
+            width: 100%;
+            background: var(--card-bg);
+            border: 1px solid var(--gold-2);
+            border-radius: var(--radius-lg);
+            padding: 14px;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .aram-bench-title, .safe-mode-title {
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--gold-2);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .aram-bench-list {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* Spells Modal / Bottom Drawer */
+        .spells-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+
+        .spells-modal-content {
+            background: #0b1322;
+            border-top: 2px solid var(--gold-2);
+            border-radius: 20px 20px 0 0;
+            width: 100%;
+            max-width: 600px;
+            padding: 18px;
+            box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.6);
+            animation: slideUp 0.22s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        .spells-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .spells-modal-title {
+            font-weight: 800;
+            color: var(--gold-1);
+            font-size: 15px;
+        }
+
+        .modal-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 26px;
+            cursor: pointer;
+            line-height: 1;
+            padding: 4px;
+        }
+
+        .spells-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            max-height: 320px;
+            overflow-y: auto;
+            padding-bottom: 8px;
+        }
+
+        .spell-select-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-md);
+            padding: 10px 4px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            gap: 6px;
+        }
+
+        .spell-select-item:active {
+            transform: scale(0.92);
+            border-color: var(--arcane-cyan);
+        }
+
+        .spell-select-item.active {
+            border-color: var(--gold-2);
+            background: rgba(200, 170, 110, 0.15);
+        }
+
+        .spell-select-item img {
+            width: 42px;
+            height: 42px;
+            border-radius: 8px;
+            border: 1px solid var(--gold-3);
+        }
+
+        .spell-select-item span {
+            font-size: 11px;
+            color: var(--gold-1);
+            font-weight: 700;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            width: 100%;
+        }
+
+        /* Modern Bottom Navigation Bar (Mobile Ergonomics) */
+        nav.mobile-nav-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: var(--nav-height);
+            background: rgba(8, 13, 24, 0.95);
+            border-top: 1px solid var(--card-border);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 900;
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+        }
+
+        .nav-tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            width: 33.33%;
+            height: 100%;
+            transition: color var(--transition-fast);
+        }
+
+        .nav-tab-icon {
+            font-size: 18px;
+        }
+
+        .nav-tab-btn.active {
+            color: var(--arcane-cyan);
+        }
+
+        .nav-tab-btn.active .nav-tab-icon {
+            filter: drop-shadow(0 0 6px var(--arcane-cyan-glow));
+        }
+
+        /* Station / Status Panel */
+        #stationView {
+            display: none;
+            width: 100%;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .station-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .station-card-title {
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--gold-2);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .station-info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .station-info-row:last-child { border-bottom: none; }
+
+        .btn-action-outline {
+            background: rgba(10, 200, 185, 0.1);
+            border: 1px solid var(--arcane-cyan);
+            border-radius: var(--radius-md);
+            color: var(--arcane-cyan);
+            font-size: 13px;
+            font-weight: 700;
+            padding: 10px;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        /* Tablet & Landscape Responsive Optimizations */
+        @media (min-width: 680px) {
+            body { padding-top: 24px; }
+            .teams-summary { gap: 14px; }
+            .champ-grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); }
+            .champ-img { width: 54px; height: 54px; }
+            .spells-grid { grid-template-columns: repeat(6, 1fr); }
+        }
+
+        @media (orientation: landscape) and (max-height: 500px) {
+            body { padding-bottom: calc(var(--nav-height) + 8px); }
+            .champ-grid-container { max-height: 140px; }
+            .phase-card { padding: 14px; }
+            .btn-accept { height: 60px; }
         }
     </style>
 </head>
 <body>
     <header>
         <div class="brand">
-            <span class="brand-icon">🎮</span>
+            <span class="brand-icon">⚡</span>
             <div>
                 <div class="brand-title">RiftPilot</div>
                 <div id="lcuBadge" class="lcu-subbadge">○ LoL Bekleniyor</div>
@@ -611,68 +1205,186 @@ INDEX_HTML = """<!DOCTYPE html>
     </header>
 
     <main>
-        <!-- Standard Gameflow View -->
-        <div id="mainView">
-            <div id="phaseCard" class="phase-card">
-                <div class="phase-label">Aktif Oyun Durumu</div>
-                <div id="phaseDisplay" class="phase-value">İstemci Bekleniyor</div>
+        <!-- Tab 1: Game & Champ Select Panel -->
+        <div id="gameTabPanel" class="tab-panel">
+            <!-- Standard Gameflow View -->
+            <div id="mainView">
+                <div id="phaseCard" class="phase-card">
+                    <div class="phase-label">Aktif Oyun Durumu</div>
+                    <div id="phaseDisplay" class="phase-value">İstemci Bekleniyor</div>
+                </div>
+
+                <div class="action-area">
+                    <button id="acceptBtn" class="btn-accept" disabled>
+                        KABUL ET
+                    </button>
+                    <div id="infoMessage" class="info-card">
+                        League of Legends eşleşmesi bulunduğunda buton parlayacaktır.
+                    </div>
+                </div>
             </div>
 
-            <div class="action-area">
-                <button id="acceptBtn" class="btn-accept" disabled>
-                    KABUL ET
-                </button>
-                <div id="infoMessage" class="info-card">
-                    League of Legends eşleşmesi bulunduğunda buton parlayacaktır.
+            <!-- Champion Select View -->
+            <div id="champSelectView" style="display: none;">
+                <!-- Game Mode Banner -->
+                <div id="gameModeBanner" class="game-mode-banner">
+                    <span id="gameModeName" class="game-mode-name">SİHİRDAR VADİSİ</span>
+                    <span id="gameModeStage" class="game-mode-stage">HAZIRLIK</span>
+                </div>
+
+                <!-- Validation / Client Error Toast -->
+                <div id="csErrorToast" class="error-toast"></div>
+
+                <div class="cs-top-bar">
+                    <div class="cs-badges">
+                        <span id="csModeBadge" class="cs-badge pick">SEÇİM</span>
+                        <span id="csPositionBadge" class="cs-badge pos">ORTA</span>
+                    </div>
+                    <div id="csTimerBadge" class="cs-timer-badge">30s</div>
+                </div>
+                <div class="cs-progress-container">
+                    <div id="csProgressBar" class="cs-progress-bar"></div>
+                </div>
+
+                <div class="teams-summary">
+                    <div class="team-box blue">
+                        <div class="team-header-title">Mavi Takım (Dost)</div>
+                        <div id="myTeamList"></div>
+                    </div>
+                    <div class="team-box red">
+                        <div class="team-header-title">Kırmızı Takım (Rakip)</div>
+                        <div id="theirTeamList"></div>
+                    </div>
+                </div>
+
+                <!-- ARAM / ARAM Şamata Bench Panel -->
+                <div id="aramBenchBox" class="aram-bench-box">
+                    <div class="aram-bench-title">🎲 ARAM Yedek Kulübesi & Durum</div>
+                    <div id="aramBenchInfo" style="font-size:11px;color:var(--text-secondary);">
+                        Bu modda şampiyonlar rastgele atanır; yasaklama ve klasik tablo seçimi yoktur.
+                    </div>
+                    <div id="aramBenchList" class="aram-bench-list"></div>
+                </div>
+
+                <!-- Unsupported / Unknown Mode Safe Generic Box -->
+                <div id="safeModeBox" class="safe-mode-box">
+                    <div class="safe-mode-title">🛡️ Güvenli Genel Durum Ekranı</div>
+                    <div id="safeModeInfo" style="font-size:11px;color:var(--text-secondary);">
+                        Bu oyun modu için özel seçim kuralları doğrulanamadığından yanlış seçimi önlemek adına manuel seçim devre dışı bırakılmıştır.
+                    </div>
+                </div>
+
+                <div id="champSearchBox" class="champ-search-box">
+                    <input type="text" id="champSearchInput" class="champ-search-input" placeholder="🔍 Şampiyon ara (Ahri, Yasuo, Lee Sin)...">
+                    <div class="role-filters-row" id="roleFiltersRow">
+                        <button class="role-pill active" data-role="">Tümü</button>
+                        <button class="role-pill" data-role="fighter">Dövüşçü</button>
+                        <button class="role-pill" data-role="mage">Büyücü</button>
+                        <button class="role-pill" data-role="assassin">Suikastçı</button>
+                        <button class="role-pill" data-role="marksman">Nişancı</button>
+                        <button class="role-pill" data-role="support">Destek</button>
+                        <button class="role-pill" data-role="tank">Tank</button>
+                    </div>
+                </div>
+
+                <div id="champGridContainer" class="champ-grid-container">
+                    <div id="champGrid" class="champ-grid"></div>
+                </div>
+
+                <div id="csActionPanel" class="cs-action-panel">
+                    <div class="cs-action-row">
+                        <div class="cs-selected-preview">
+                            <img id="csPreviewImg" class="cs-preview-img" src="" alt="" style="display:none;">
+                            <div id="csPreviewName" class="cs-preview-name">Şampiyon Seçin</div>
+                        </div>
+                        <button id="csBanBtn" class="cs-btn-ban" style="display:none;" disabled>YASAKLA</button>
+                        <button id="csLockBtn" class="cs-btn-lock" disabled>KİLİTLE</button>
+                    </div>
+                    <div id="csActionReason" class="cs-action-reason"></div>
                 </div>
             </div>
         </div>
 
-        <!-- Champion Select View -->
-        <div id="champSelectView" style="display: none;">
-            <div class="cs-top-bar">
-                <div class="cs-badges">
-                    <span id="csModeBadge" class="cs-badge pick">SEÇİM</span>
-                    <span id="csPositionBadge" class="cs-badge pos">ORTA</span>
+        <!-- Tab 2: Loadout (Spells & Runes) Panel -->
+        <div id="loadoutTabPanel" class="tab-panel" style="display: none;">
+            <div class="loadout-bar">
+                <div class="loadout-top-row">
+                    <div class="spells-container">
+                        <div id="spellSlotD" class="spell-slot" title="D Tuşu Büyüsü">
+                            <img id="spellImgD" class="spell-img" src="https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/data/spells/icons2d/summonerflash.png" alt="D">
+                            <span class="spell-key-badge">D</span>
+                        </div>
+                        <div id="spellSlotF" class="spell-slot" title="F Tuşu Büyüsü">
+                            <img id="spellImgF" class="spell-img" src="https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/data/spells/icons2d/summonerdot.png" alt="F">
+                            <span class="spell-key-badge">F</span>
+                        </div>
+                    </div>
+                    <button id="applyRunesBtn" class="btn-apply-runes" disabled title="Seçili Rün Sayfasını İstemciye Uygula">⚡ SEÇİLİ RÜNÜ UYGULA</button>
                 </div>
-                <div id="csTimerBadge" class="cs-timer-badge">30s</div>
+
+                <div class="runes-section">
+                    <div class="runes-header-row">
+                        <span class="runes-title">İSTEMCİ ÖNERİLEN RÜN SAYFALARI (3 SEÇENEK)</span>
+                        <span id="runesKeystoneName" style="font-size:10px;color:var(--gold-1);font-weight:700;">Şampiyon bekleniyor...</span>
+                    </div>
+                    <div id="runesCardsGrid" class="runes-cards-grid" style="display:none;"></div>
+                    <div id="runesEmptyMsg" class="runes-empty-msg">Şampiyon seçildiğinde istemcinin 3 rün önerisi burada listelenir.</div>
+                </div>
             </div>
-            <div class="cs-progress-container">
-                <div id="csProgressBar" class="cs-progress-bar"></div>
+        </div>
+
+        <!-- Tab 3: Station / Connection Details Panel -->
+        <div id="stationView">
+            <div class="station-card">
+                <div class="station-card-title">İSTASYON BAĞLANTISI</div>
+                <div class="station-info-row">
+                    <span style="color:var(--text-secondary);">LoL İstemcisi</span>
+                    <span id="stationLcuStatus" style="font-weight:700;color:var(--gold-1);">Bekleniyor</span>
+                </div>
+                <div class="station-info-row">
+                    <span style="color:var(--text-secondary);">Aktif Aşama</span>
+                    <span id="stationPhase" style="font-weight:700;color:var(--arcane-cyan);">-</span>
+                </div>
+                <div class="station-info-row">
+                    <span style="color:var(--text-secondary);">WebSocket Durumu</span>
+                    <span id="stationWsStatus" style="font-weight:700;color:var(--success);">Bağlı</span>
+                </div>
+                <div class="station-info-row">
+                    <span style="color:var(--text-secondary);">Oturum Türü</span>
+                    <span style="font-weight:700;color:var(--gold-2);">Zero-Trust LAN Token</span>
+                </div>
             </div>
 
-            <div class="teams-summary">
-                <div class="team-box blue">
-                    <div class="team-header-title">Mavi Takım (Dost)</div>
-                    <div id="myTeamList"></div>
-                </div>
-                <div class="team-box red">
-                    <div class="team-header-title">Kırmızı Takım (Rakip)</div>
-                    <div id="theirTeamList"></div>
-                </div>
-            </div>
-
-            <div class="champ-search-box">
-                <input type="text" id="champSearchInput" class="champ-search-input" placeholder="🔍 Şampiyon ara (Ahri, Yasuo, Lee Sin)...">
-            </div>
-
-            <div class="champ-grid-container">
-                <div id="champGrid" class="champ-grid"></div>
-            </div>
-
-            <div class="cs-action-panel">
-                <div class="cs-selected-preview">
-                    <img id="csPreviewImg" class="cs-preview-img" src="" alt="" style="display:none;">
-                    <div id="csPreviewName" class="cs-preview-name">Şampiyon Seçin</div>
-                </div>
-                <button id="csLockBtn" class="cs-btn-lock" disabled>KİLİTLE</button>
-            </div>
+            <button id="btnResync" class="btn-action-outline">🔄 İstemci Durumunu Yenile</button>
         </div>
     </main>
 
-    <footer>
-        RiftPilot Mobile Companion — Hextech Transport Agnostic Engine
-    </footer>
+    <!-- Spells Modal / Bottom Drawer -->
+    <div id="spellsModal" class="spells-modal" style="display: none;">
+        <div class="spells-modal-content">
+            <div class="spells-modal-header">
+                <span class="spells-modal-title" id="spellsModalTitle">Sihirdar Büyüsü Seç</span>
+                <button id="spellsModalClose" class="modal-close-btn">&times;</button>
+            </div>
+            <div id="spellsGrid" class="spells-grid"></div>
+        </div>
+    </div>
+
+    <!-- Mobile Bottom Navigation Bar (LeagueCompanion One-Handed Ergonomics) -->
+    <nav class="mobile-nav-bar">
+        <button id="navTabGame" class="nav-tab-btn active">
+            <span class="nav-tab-icon">🎮</span>
+            <span>Oyun</span>
+        </button>
+        <button id="navTabLoadout" class="nav-tab-btn">
+            <span class="nav-tab-icon">⚡</span>
+            <span>Rün & Büyü</span>
+        </button>
+        <button id="navTabStation" class="nav-tab-btn">
+            <span class="nav-tab-icon">📡</span>
+            <span>İstasyon</span>
+        </button>
+    </nav>
 
     <script>
         const statusBadge = document.getElementById('statusBadge');
@@ -686,31 +1398,293 @@ INDEX_HTML = """<!DOCTYPE html>
 
         // Champ select DOM references
         const champSelectView = document.getElementById('champSelectView');
+        const gameModeBanner = document.getElementById('gameModeBanner');
+        const gameModeName = document.getElementById('gameModeName');
+        const gameModeStage = document.getElementById('gameModeStage');
+        const csErrorToast = document.getElementById('csErrorToast');
         const csModeBadge = document.getElementById('csModeBadge');
         const csPositionBadge = document.getElementById('csPositionBadge');
         const csTimerBadge = document.getElementById('csTimerBadge');
         const csProgressBar = document.getElementById('csProgressBar');
         const myTeamList = document.getElementById('myTeamList');
         const theirTeamList = document.getElementById('theirTeamList');
+        const champSearchBox = document.getElementById('champSearchBox');
         const champSearchInput = document.getElementById('champSearchInput');
+        const roleFiltersRow = document.getElementById('roleFiltersRow');
+        const champGridContainer = document.getElementById('champGridContainer');
         const champGrid = document.getElementById('champGrid');
+        const aramBenchBox = document.getElementById('aramBenchBox');
+        const aramBenchInfo = document.getElementById('aramBenchInfo');
+        const aramBenchList = document.getElementById('aramBenchList');
+        const safeModeBox = document.getElementById('safeModeBox');
+        const csActionPanel = document.getElementById('csActionPanel');
         const csPreviewImg = document.getElementById('csPreviewImg');
         const csPreviewName = document.getElementById('csPreviewName');
+        const csBanBtn = document.getElementById('csBanBtn');
         const csLockBtn = document.getElementById('csLockBtn');
+        const csActionReason = document.getElementById('csActionReason');
+
+        // Navigation DOM references
+        const gameTabPanel = document.getElementById('gameTabPanel');
+        const loadoutTabPanel = document.getElementById('loadoutTabPanel');
+        const stationView = document.getElementById('stationView');
+        const navTabGame = document.getElementById('navTabGame');
+        const navTabLoadout = document.getElementById('navTabLoadout');
+        const navTabStation = document.getElementById('navTabStation');
+
+        const stationLcuStatus = document.getElementById('stationLcuStatus');
+        const stationPhase = document.getElementById('stationPhase');
+        const stationWsStatus = document.getElementById('stationWsStatus');
+        const btnResync = document.getElementById('btnResync');
 
         let socket = null;
         let sessionToken = localStorage.getItem('riftpilot_session_token');
 
         // State variables
         let currentChampSelect = null;
+        let currentModeContext = null;
+        let currentEligibility = null;
         let gridChampions = [];
         let selectedChampId = 0;
         let selectedChampName = '';
+        let isSubmittingAction = false;
+        let lastFetchedRunesChampId = 0;
+        let selectedRoleFilter = '';
+
+        const spellSlotD = document.getElementById('spellSlotD');
+        const spellSlotF = document.getElementById('spellSlotF');
+        const spellImgD = document.getElementById('spellImgD');
+        const spellImgF = document.getElementById('spellImgF');
+        const runesKeystoneName = document.getElementById('runesKeystoneName');
+        const runesCardsGrid = document.getElementById('runesCardsGrid');
+        const runesEmptyMsg = document.getElementById('runesEmptyMsg');
+        const applyRunesBtn = document.getElementById('applyRunesBtn');
+        const spellsModal = document.getElementById('spellsModal');
+        const spellsModalTitle = document.getElementById('spellsModalTitle');
+        const spellsModalClose = document.getElementById('spellsModalClose');
+        const spellsGrid = document.getElementById('spellsGrid');
+
+        let currentSpell1Id = 4;
+        let currentSpell2Id = 14;
+        let activeSpellPickerSlot = 'D';
+        let recommendedRunePages = [];
+        let selectedRunePageIndex = -1;
+        let spellsCatalog = [];
+
+        // Navigation Tabs Handling
+        function switchTab(tabName) {
+            gameTabPanel.style.display = (tabName === 'game') ? 'flex' : 'none';
+            loadoutTabPanel.style.display = (tabName === 'loadout') ? 'flex' : 'none';
+            stationView.style.display = (tabName === 'station') ? 'flex' : 'none';
+
+            navTabGame.classList.toggle('active', tabName === 'game');
+            navTabLoadout.classList.toggle('active', tabName === 'loadout');
+            navTabStation.classList.toggle('active', tabName === 'station');
+        }
+
+        navTabGame.addEventListener('click', () => switchTab('game'));
+        navTabLoadout.addEventListener('click', () => switchTab('loadout'));
+        navTabStation.addEventListener('click', () => switchTab('station'));
+
+        if (btnResync) {
+            btnResync.addEventListener('click', () => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ type: 'GET_STATE', token: sessionToken }));
+                    socket.send(JSON.stringify({ type: 'GET_CHAMP_SELECT', token: sessionToken }));
+                    socket.send(JSON.stringify({ type: 'GET_SPELLS', token: sessionToken }));
+                }
+            });
+        }
+
+        // Role Filter Pills
+        if (roleFiltersRow) {
+            roleFiltersRow.querySelectorAll('.role-pill').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    roleFiltersRow.querySelectorAll('.role-pill').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    selectedRoleFilter = btn.getAttribute('data-role') || '';
+                    renderChampGrid();
+                });
+            });
+        }
+
+        function showErrorToast(msg) {
+            if (!csErrorToast || !msg) return;
+            csErrorToast.innerText = '⚠️ ' + msg;
+            csErrorToast.style.display = 'block';
+            setTimeout(() => {
+                csErrorToast.style.display = 'none';
+            }, 4000);
+        }
+
+        function getSpellIconUrl(key) {
+            if (!key) return '';
+            return `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/data/spells/icons2d/${key.toLowerCase()}.png`;
+        }
+
+        function updateSpellsUI(s1, s2) {
+            if (s1 && s1 > 0) currentSpell1Id = s1;
+            if (s2 && s2 > 0) currentSpell2Id = s2;
+
+            const spell1 = spellsCatalog.find(s => s.id === currentSpell1Id) || { key: 'SummonerFlash' };
+            const spell2 = spellsCatalog.find(s => s.id === currentSpell2Id) || { key: 'SummonerDot' };
+
+            spellImgD.src = getSpellIconUrl(spell1.key);
+            spellImgD.onerror = () => { spellImgD.src = `https://ddragon.leagueoflegends.com/cdn/14.24.1/img/spell/${spell1.key}.png`; };
+
+            spellImgF.src = getSpellIconUrl(spell2.key);
+            spellImgF.onerror = () => { spellImgF.src = `https://ddragon.leagueoflegends.com/cdn/14.24.1/img/spell/${spell2.key}.png`; };
+        }
+
+        function openSpellsPicker(slot) {
+            activeSpellPickerSlot = slot;
+            const modeLabel = (currentModeContext && currentModeContext.displayName) ? ` (${currentModeContext.displayName})` : '';
+            spellsModalTitle.innerText = ((slot === 'D') ? 'D Tuşu Büyüsü Seç' : 'F Tuşu Büyüsü Seç') + modeLabel;
+            renderSpellsGrid();
+            spellsModal.style.display = 'flex';
+        }
+
+        function closeSpellsPicker() {
+            spellsModal.style.display = 'none';
+        }
+
+        function renderSpellsGrid() {
+            spellsGrid.innerHTML = '';
+            const currentSelected = activeSpellPickerSlot === 'D' ? currentSpell1Id : currentSpell2Id;
+
+            spellsCatalog.forEach(sp => {
+                const item = document.createElement('div');
+                const isSelected = (sp.id === currentSelected);
+                item.className = 'spell-select-item' + (isSelected ? ' active' : '');
+
+                const iconUrl = getSpellIconUrl(sp.key);
+                item.innerHTML = `
+                    <img src="${iconUrl}" onerror="this.src='https://ddragon.leagueoflegends.com/cdn/14.24.1/img/spell/${sp.key}.png'" alt="${sp.name}">
+                    <span>${sp.name}</span>
+                `;
+
+                item.addEventListener('click', () => {
+                    selectSpell(sp.id);
+                });
+
+                spellsGrid.appendChild(item);
+            });
+        }
+
+        function selectSpell(chosenId) {
+            let newSpell1 = currentSpell1Id;
+            let newSpell2 = currentSpell2Id;
+
+            if (activeSpellPickerSlot === 'D') {
+                if (chosenId === currentSpell2Id) {
+                    newSpell2 = currentSpell1Id;
+                }
+                newSpell1 = chosenId;
+            } else {
+                if (chosenId === currentSpell1Id) {
+                    newSpell1 = currentSpell2Id;
+                }
+                newSpell2 = chosenId;
+            }
+
+            closeSpellsPicker();
+            if (navigator.vibrate) navigator.vibrate(20);
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'SET_SPELLS',
+                    token: sessionToken,
+                    spell1Id: newSpell1,
+                    spell2Id: newSpell2,
+                }));
+            }
+        }
+
+        function fetchRecommendedRunes(championId, position, mapId) {
+            if (!championId || championId <= 0) return;
+            lastFetchedRunesChampId = championId;
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'GET_RECOMMENDED_RUNES',
+                    token: sessionToken,
+                    championId: championId,
+                    position: position || '',
+                    mapId: mapId || 11,
+                }));
+            }
+        }
+
+        function renderRecommendedRunes(pages) {
+            recommendedRunePages = Array.isArray(pages) ? pages : [];
+            selectedRunePageIndex = -1;
+            applyRunesBtn.disabled = true;
+            applyRunesBtn.innerText = '⚡ SEÇİLİ RÜNÜ UYGULA';
+            applyRunesBtn.classList.remove('applied');
+
+            if (recommendedRunePages.length === 0) {
+                runesCardsGrid.style.display = 'none';
+                runesCardsGrid.innerHTML = '';
+                runesEmptyMsg.style.display = 'block';
+                runesEmptyMsg.innerText = 'İstemcide bu şampiyon için önerilen rün sayfası bulunamadı.';
+                runesKeystoneName.innerText = 'Öneri Yok';
+                return;
+            }
+
+            runesEmptyMsg.style.display = 'none';
+            runesCardsGrid.style.display = 'grid';
+            runesCardsGrid.innerHTML = '';
+            runesKeystoneName.innerText = `${recommendedRunePages.length} öneri mevcut — birini seçin`;
+
+            recommendedRunePages.forEach((rec, idx) => {
+                const card = document.createElement('div');
+                card.className = 'rune-card';
+                const details = Array.isArray(rec.perkNames) ? rec.perkNames.slice(1, 6).join(', ') : '';
+                card.innerHTML = `
+                    <div class="rune-card-keystone">${rec.keystoneName || rec.name}</div>
+                    <div class="rune-card-trees">${rec.primaryTreeName || ''} + ${rec.subTreeName || ''}</div>
+                    <div class="rune-card-perks">${details}</div>
+                `;
+                card.addEventListener('click', () => {
+                    selectedRunePageIndex = idx;
+                    Array.from(runesCardsGrid.children).forEach((el, i) => {
+                        el.classList.toggle('selected', i === idx);
+                    });
+                    runesKeystoneName.innerText = `Seçilen: ${rec.keystoneName || rec.name}`;
+                    applyRunesBtn.disabled = false;
+                });
+                runesCardsGrid.appendChild(card);
+            });
+        }
+
+        function applySelectedRunePage() {
+            if (selectedRunePageIndex < 0 || selectedRunePageIndex >= recommendedRunePages.length) return;
+            const chosen = recommendedRunePages[selectedRunePageIndex];
+            if (!chosen || !chosen.page) return;
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                applyRunesBtn.disabled = true;
+                applyRunesBtn.innerText = 'UYGULANIYOR...';
+                socket.send(JSON.stringify({
+                    type: 'APPLY_RUNES',
+                    token: sessionToken,
+                    page: chosen.page,
+                    championId: chosen.championId || selectedChampId,
+                }));
+            }
+        }
+
+        if (spellSlotD) spellSlotD.addEventListener('click', () => openSpellsPicker('D'));
+        if (spellSlotF) spellSlotF.addEventListener('click', () => openSpellsPicker('F'));
+        if (spellsModalClose) spellsModalClose.addEventListener('click', closeSpellsPicker);
+        if (spellsModal) spellsModal.addEventListener('click', (e) => {
+            if (e.target === spellsModal) closeSpellsPicker();
+        });
+        if (applyRunesBtn) applyRunesBtn.addEventListener('click', applySelectedRunePage);
+
         let timerSecondsRemaining = 0;
         let timerTotalSeconds = 30;
         let timerCountdownInterval = null;
 
-        // Position translation mapping
         const POSITION_NAMES = {
             'top': 'ÜST KORİDOR',
             'jungle': 'ORMAN',
@@ -720,12 +1694,26 @@ INDEX_HTML = """<!DOCTYPE html>
             'bot': 'ALT KORİDOR',
             'utility': 'DESTEK',
             'support': 'DESTEK',
-            '': 'KORİDOR'
+            '': 'SERBEST'
+        };
+
+        const STAGE_LABELS = {
+            'PLANNING': 'HAZIRLIK EVRESİ',
+            'BAN_MY_TURN': 'YASAKLAMA SIRASI SİZDE',
+            'BAN_WAITING': 'YASAKLAMA AŞAMASI',
+            'PICK_MY_TURN': 'SEÇİM SIRASI SİZDE',
+            'PICK_WAITING': 'SEÇİM AŞAMASI',
+            'PICK_LOCKED': 'ŞAMPİYON KİLİTLENDİ',
+            'ARAM_BENCH': 'ARAM HAZIRLIK',
+            'FINALIZATION': 'SON HAZIRLIKLAR',
+            'GAME_STARTING': 'OYUN BAŞLIYOR',
+            'UNSUPPORTED_SAFE': 'GÜVENLİ GÖRÜNÜM'
         };
 
         function setStatus(text, type) {
             statusText.innerText = text;
             statusBadge.className = 'status-badge ' + (type || '');
+            if (stationWsStatus) stationWsStatus.innerText = text;
         }
 
         function updateLcuStatus(connected) {
@@ -737,6 +1725,10 @@ INDEX_HTML = """<!DOCTYPE html>
                     lcuBadge.innerText = '○ LoL Bekleniyor';
                     lcuBadge.className = 'lcu-subbadge';
                 }
+            }
+            if (stationLcuStatus) {
+                stationLcuStatus.innerText = connected ? 'Bağlandı' : 'İstemci Bekleniyor';
+                stationLcuStatus.style.color = connected ? 'var(--success)' : 'var(--danger)';
             }
         }
 
@@ -758,9 +1750,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 gain.connect(ctx.destination);
                 osc.start();
                 osc.stop(ctx.currentTime + 0.6);
-            } catch (e) {
-                console.warn('Audio not allowed without gesture:', e);
-            }
+            } catch (e) {}
         }
 
         function triggerVibrate() {
@@ -776,20 +1766,23 @@ INDEX_HTML = """<!DOCTYPE html>
 
         function updateGameflow(phase) {
             const p = String(phase || 'None');
+            if (stationPhase) stationPhase.innerText = p;
+
             if (p === 'ChampSelect') {
                 mainView.style.display = 'none';
                 champSelectView.style.display = 'flex';
-                // Request champ select state and champion catalog immediately
                 if (socket && socket.readyState === WebSocket.OPEN) {
                     try {
                         socket.send(JSON.stringify({ type: 'GET_CHAMP_SELECT', token: sessionToken }));
                         socket.send(JSON.stringify({ type: 'GET_GRID_CHAMPIONS', token: sessionToken }));
+                        socket.send(JSON.stringify({ type: 'GET_SPELLS', token: sessionToken }));
                     } catch (e) {}
                 }
             } else {
                 mainView.style.display = 'flex';
                 champSelectView.style.display = 'none';
                 clearInterval(timerCountdownInterval);
+                lastFetchedRunesChampId = 0;
 
                 if (p === 'ReadyCheck') {
                     phaseDisplay.innerText = '⚔️ MAÇ BULUNDU!';
@@ -828,19 +1821,58 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         }
 
-        function renderChampSelect(data) {
+        function renderChampSelect(data, modeCtx, eligibility) {
             if (!data) return;
             currentChampSelect = data;
+            if (modeCtx) currentModeContext = modeCtx;
+            if (eligibility) currentEligibility = eligibility;
 
-            // 1. Update Timer with exact server seconds
+            const effMode = currentModeContext || data.modeContext || {};
+            const effElig = currentEligibility || data.eligibility || {};
+
+            // 0. Update Game Mode Banner & Layout Visibility
+            gameModeName.innerText = effMode.displayName || effMode.gameMode || 'SİHİRDAR VADİSİ';
+            gameModeStage.innerText = STAGE_LABELS[effElig.stage] || effElig.stage || '';
+
+            const layout = effElig.layout || 'DRAFT';
+            if (layout === 'SAFE_GENERIC') {
+                safeModeBox.style.display = 'flex';
+                aramBenchBox.style.display = 'none';
+                champSearchBox.style.display = 'none';
+                champGridContainer.style.display = 'none';
+                csActionPanel.style.display = 'none';
+            } else if (layout === 'ARAM') {
+                safeModeBox.style.display = 'none';
+                aramBenchBox.style.display = 'flex';
+                champSearchBox.style.display = 'none';
+                champGridContainer.style.display = 'none';
+                csActionPanel.style.display = 'none';
+                const benchIds = data.benchChampionIds || [];
+                aramBenchInfo.innerText = `Yeniden deneme (Zar) hakkı: ${data.rerollsRemaining || 0} | Yedek Kulübesi: ${benchIds.length} şampiyon`;
+                aramBenchList.innerHTML = '';
+                benchIds.forEach(cid => {
+                    const tag = document.createElement('span');
+                    tag.className = 'cs-badge pos';
+                    tag.innerText = findChampionName(cid);
+                    aramBenchList.appendChild(tag);
+                });
+            } else {
+                safeModeBox.style.display = 'none';
+                aramBenchBox.style.display = 'none';
+                champSearchBox.style.display = 'flex';
+                champGridContainer.style.display = 'block';
+                csActionPanel.style.display = 'flex';
+            }
+
+            // 1. Update Timer
             if (data.timer) {
                 const totalSeconds = Number(data.timer.totalTimeInPhase || data.timer.total_time_in_phase || 30000) / 1000;
                 const secondsLeft = Number(
-                    data.timer.timeLeftSeconds !== undefined 
-                    ? data.timer.timeLeftSeconds 
-                    : (data.timer.adjustedTimeLeftInPhase || data.timer.adjusted_time_left_in_phase || data.timer.timeLeftInPhase || data.timer.time_left_in_phase || 30000) / 1000
+                    data.timer.timeLeftSeconds !== undefined
+                    ? data.timer.timeLeftSeconds
+                    : (data.timer.adjustedTimeLeftInPhase || data.timer.timeLeftInPhase || 30000) / 1000
                 );
-                
+
                 timerTotalSeconds = Math.max(1, Math.round(totalSeconds));
                 timerSecondsRemaining = Math.max(0, Math.floor(secondsLeft));
                 csTimerBadge.innerText = timerSecondsRemaining + 's';
@@ -856,46 +1888,114 @@ INDEX_HTML = """<!DOCTYPE html>
                         const curPct = Math.max(0, Math.min(100, (timerSecondsRemaining / timerTotalSeconds) * 100));
                         csProgressBar.style.width = curPct + '%';
                         if (timerSecondsRemaining <= 5) {
-                            csProgressBar.style.background = 'var(--danger)';
+                            csProgressBar.style.backgroundColor = 'var(--danger)';
                             csTimerBadge.style.color = 'var(--danger)';
                         } else {
-                            csProgressBar.style.background = 'var(--gold-2)';
+                            csProgressBar.style.backgroundColor = 'var(--gold-2)';
                             csTimerBadge.style.color = 'var(--gold-1)';
                         }
                     }
                 }, 1000);
             }
 
-            // 2. Update Local Player Lane & Active Action
+            // 2. Update Local Player Position & Spells/Runes
             const localPlayer = data.localPlayer || data.local_player;
+            let assignedPos = '';
             if (localPlayer) {
-                const pos = (localPlayer.assignedPosition || localPlayer.assigned_position || '').toLowerCase();
-                csPositionBadge.innerText = POSITION_NAMES[pos] || 'KORİDOR';
+                assignedPos = (localPlayer.assignedPosition || localPlayer.assigned_position || '').toLowerCase();
+                csPositionBadge.innerText = POSITION_NAMES[assignedPos] || 'SERBEST';
+
+                const s1 = localPlayer.spell1Id || localPlayer.spell1_id;
+                const s2 = localPlayer.spell2Id || localPlayer.spell2_id;
+                if (s1 && s2) {
+                    updateSpellsUI(s1, s2);
+                }
+
+                const activeChamp = localPlayer.championId || localPlayer.champion_id || localPlayer.championPickIntent || localPlayer.champion_pick_intent;
+                if (activeChamp > 0 && activeChamp !== lastFetchedRunesChampId) {
+                    fetchRecommendedRunes(activeChamp, assignedPos, effMode.mapId || 11);
+                }
             }
 
-            const activeAction = data.activeAction || data.active_action;
-            if (activeAction) {
-                const isBan = (activeAction.type || '').toLowerCase() === 'ban';
-                csModeBadge.innerText = isBan ? 'YASAKLAMA' : 'SEÇİM';
-                csModeBadge.className = 'cs-badge ' + (isBan ? 'ban' : 'pick');
-
-                csLockBtn.disabled = (selectedChampId <= 0);
-                csLockBtn.innerText = isBan ? 'YASAKLA' : 'KİLİTLE';
-                csLockBtn.className = 'cs-btn-lock ' + (isBan ? 'ban' : 'pick');
-            } else {
-                csModeBadge.innerText = 'BEKLENİYOR';
-                csModeBadge.className = 'cs-badge pos';
-                csLockBtn.disabled = (selectedChampId <= 0);
-                csLockBtn.innerText = 'KİLİTLE';
-                csLockBtn.className = 'cs-btn-lock';
+            // 3. Reconcile selectedChampId if it became banned in client state
+            const bannedSet = new Set(data.allBannedIds || []);
+            if (selectedChampId > 0 && bannedSet.has(selectedChampId)) {
+                selectedChampId = 0;
+                selectedChampName = '';
+                csPreviewName.innerText = 'Şampiyon Yasaklandı — Yeniden Seçin';
+                csPreviewImg.style.display = 'none';
             }
 
-            // 3. Render Team Rosters
+            // 4. Derive Ban & Lock button states strictly from server eligibility + local selection
+            updateActionButtonsFromState();
+
+            // 5. Render Team Rosters & Champion Grid
             renderTeamRoster(myTeamList, data.myTeam || [], data.localPlayerCellId ?? data.local_player_cell_id);
             renderTeamRoster(theirTeamList, data.theirTeam || [], -1);
-
-            // 4. Update Champion Grid
             renderChampGrid();
+        }
+
+        function updateActionButtonsFromState() {
+            const effElig = currentEligibility || (currentChampSelect && currentChampSelect.eligibility) || {};
+            const bannedSet = new Set(currentChampSelect ? (currentChampSelect.allBannedIds || []) : []);
+            const unavailableSet = new Set(currentChampSelect ? (currentChampSelect.unavailablePickIds || []) : []);
+
+            const activeAction = currentChampSelect ? (currentChampSelect.activeAction || currentChampSelect.active_action) : null;
+            const candidateChamp = selectedChampId > 0 ? selectedChampId : (activeAction ? (activeAction.championId || 0) : 0);
+            const validUnbannedChamp = candidateChamp > 0 && !bannedSet.has(candidateChamp);
+
+            // Mode badge
+            if (effElig.stage === 'BAN_MY_TURN' || effElig.stage === 'BAN_WAITING') {
+                csModeBadge.innerText = 'YASAKLAMA';
+                csModeBadge.className = 'cs-badge ban';
+            } else {
+                csModeBadge.innerText = 'SEÇİM';
+                csModeBadge.className = 'cs-badge pick';
+            }
+
+            // Ban button: completely hidden if no ban phase in mode
+            if (effElig.banPhaseExists && effElig.banButtonVisible) {
+                csBanBtn.style.display = 'inline-block';
+                const canBanNow = (
+                    effElig.stage === 'BAN_MY_TURN'
+                    && effElig.isMyTurn
+                    && validUnbannedChamp
+                    && !isSubmittingAction
+                );
+                csBanBtn.disabled = !canBanNow;
+                csBanBtn.innerText = isSubmittingAction ? '...' : 'YASAKLA';
+            } else {
+                csBanBtn.style.display = 'none';
+                csBanBtn.disabled = true;
+            }
+
+            // Lock button: enabled only on PICK_MY_TURN with valid unbanned & unpicked champion
+            if (effElig.lockButtonVisible !== false) {
+                csLockBtn.style.display = 'inline-block';
+                const canLockNow = (
+                    effElig.stage === 'PICK_MY_TURN'
+                    && effElig.isMyTurn
+                    && validUnbannedChamp
+                    && !unavailableSet.has(candidateChamp)
+                    && !isSubmittingAction
+                );
+                csLockBtn.disabled = !canLockNow;
+                if (effElig.stage === 'PICK_LOCKED') {
+                    csLockBtn.innerText = 'KİLİTLENDİ ✓';
+                } else {
+                    csLockBtn.innerText = isSubmittingAction ? 'GÖNDERİLİYOR...' : 'KİLİTLE';
+                }
+            } else {
+                csLockBtn.style.display = 'none';
+                csLockBtn.disabled = true;
+            }
+
+            // Status reason helper text
+            if (effElig.stage === 'BAN_MY_TURN' || effElig.stage === 'BAN_WAITING') {
+                csActionReason.innerText = effElig.banDisabledReason || '';
+            } else {
+                csActionReason.innerText = effElig.lockDisabledReason || '';
+            }
         }
 
         function findChampionName(id) {
@@ -928,8 +2028,12 @@ INDEX_HTML = """<!DOCTYPE html>
             champGrid.innerHTML = '';
 
             const bannedSet = new Set(currentChampSelect ? (currentChampSelect.allBannedIds || []) : []);
+            const unavailableSet = new Set(currentChampSelect ? (currentChampSelect.unavailablePickIds || []) : []);
 
             const filtered = gridChampions.filter(c => {
+                if (selectedRoleFilter && Array.isArray(c.roles) && !c.roles.includes(selectedRoleFilter)) {
+                    return false;
+                }
                 if (!query) return true;
                 return (c.name || '').toLowerCase().includes(query);
             });
@@ -937,17 +2041,28 @@ INDEX_HTML = """<!DOCTYPE html>
             filtered.forEach(c => {
                 const item = document.createElement('div');
                 const isBanned = bannedSet.has(c.id);
-                const isSelected = (selectedChampId === c.id);
+                const isDisabledInMode = Boolean(c.disabled);
+                const isTaken = unavailableSet.has(c.id);
+                const isUnselectable = isBanned || isDisabledInMode || isTaken;
+                const isSelected = (selectedChampId === c.id) && !isUnselectable;
 
-                item.className = 'champ-item' + (isSelected ? ' selected' : '') + (isBanned ? ' banned' : '');
+                item.className = 'champ-item'
+                    + (isSelected ? ' selected' : '')
+                    + (isBanned ? ' banned' : '')
+                    + ((!isBanned && isUnselectable) ? ' unavailable' : '');
+
+                const badgeHtml = isBanned
+                    ? '<span class="champ-ban-badge">YASAKLI</span>'
+                    : (isTaken ? '<span class="champ-ban-badge" style="background:#555;">SEÇİLDİ</span>' : '');
 
                 const iconUrl = getChampionIconUrl(c.id);
                 item.innerHTML = `
+                    ${badgeHtml}
                     <img class="champ-img" src="${iconUrl}" onerror="this.style.opacity='0.2'" alt="${c.name}">
                     <span class="champ-name">${c.name}</span>
                 `;
 
-                if (!isBanned) {
+                if (!isUnselectable) {
                     item.addEventListener('click', () => {
                         selectChampion(c.id, c.name);
                     });
@@ -958,6 +2073,12 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         function selectChampion(id, name) {
+            const bannedSet = new Set(currentChampSelect ? (currentChampSelect.allBannedIds || []) : []);
+            if (bannedSet.has(id)) {
+                showErrorToast('Yasaklanan bir şampiyon seçilemez.');
+                return;
+            }
+
             selectedChampId = id;
             selectedChampName = name;
 
@@ -965,14 +2086,13 @@ INDEX_HTML = """<!DOCTYPE html>
             csPreviewImg.src = getChampionIconUrl(id);
             csPreviewImg.style.display = 'block';
 
-            // Enable lock button immediately
-            csLockBtn.disabled = false;
+            updateActionButtonsFromState();
 
-            // Resolve action ID if available
+            const effElig = currentEligibility || (currentChampSelect && currentChampSelect.eligibility) || {};
             const act = (currentChampSelect && (currentChampSelect.activeAction || currentChampSelect.active_action));
-            const actionId = act ? act.id : 0;
+            const actionId = effElig.activeActionId || (act ? act.id : 0);
 
-            if (socket && socket.readyState === WebSocket.OPEN) {
+            if (socket && socket.readyState === WebSocket.OPEN && effElig.hoverAllowed !== false) {
                 socket.send(JSON.stringify({
                     type: 'CHAMP_SELECT_ACTION',
                     token: sessionToken,
@@ -982,7 +2102,35 @@ INDEX_HTML = """<!DOCTYPE html>
                 }));
             }
 
+            // Fetch official recommended rune pages when hovering/selecting for pick
+            if (!act || (act.type || '').toLowerCase() !== 'ban') {
+                const localPlayer = currentChampSelect ? (currentChampSelect.localPlayer || currentChampSelect.local_player) : null;
+                const pos = localPlayer ? (localPlayer.assignedPosition || localPlayer.assigned_position || '') : '';
+                const mapId = (currentModeContext && currentModeContext.mapId) ? currentModeContext.mapId : 11;
+                fetchRecommendedRunes(id, pos, mapId);
+            }
+
             renderChampGrid();
+        }
+
+        function submitCompleteAction(expectedType) {
+            if (isSubmittingAction || selectedChampId <= 0) return;
+            const effElig = currentEligibility || (currentChampSelect && currentChampSelect.eligibility) || {};
+            const act = (currentChampSelect && (currentChampSelect.activeAction || currentChampSelect.active_action));
+            const actionId = effElig.activeActionId || (act ? act.id : 0);
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                isSubmittingAction = true;
+                updateActionButtonsFromState();
+                socket.send(JSON.stringify({
+                    type: 'CHAMP_SELECT_ACTION',
+                    token: sessionToken,
+                    actionId: actionId,
+                    championId: selectedChampId,
+                    actionType: expectedType,
+                    completed: true
+                }));
+            }
         }
 
         champSearchInput.addEventListener('input', () => {
@@ -990,22 +2138,14 @@ INDEX_HTML = """<!DOCTYPE html>
         });
 
         csLockBtn.addEventListener('click', () => {
-            if (csLockBtn.disabled || selectedChampId <= 0) {
-                return;
+            if (!csLockBtn.disabled) {
+                submitCompleteAction('pick');
             }
+        });
 
-            const act = (currentChampSelect && (currentChampSelect.activeAction || currentChampSelect.active_action));
-            const actionId = act ? act.id : 0;
-
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'CHAMP_SELECT_ACTION',
-                    token: sessionToken,
-                    actionId: actionId,
-                    championId: selectedChampId,
-                    completed: true
-                }));
-                csLockBtn.innerText = 'GÖNDERİLİYOR...';
+        csBanBtn.addEventListener('click', () => {
+            if (!csBanBtn.disabled) {
+                submitCompleteAction('ban');
             }
         });
 
@@ -1076,7 +2216,7 @@ INDEX_HTML = """<!DOCTYPE html>
                             updateLcuStatus(data.lcu_connected);
                         }
                     } else if (data.type === 'CHAMP_SELECT_UPDATE') {
-                        renderChampSelect(data.data);
+                        renderChampSelect(data.data, data.modeContext, data.eligibility);
                     } else if (data.type === 'GRID_CHAMPIONS') {
                         gridChampions = data.data || [];
                         renderChampGrid();
@@ -1087,12 +2227,41 @@ INDEX_HTML = """<!DOCTYPE html>
                             acceptBtn.classList.add('accepted');
                             infoMessage.innerText = 'Maç kabul edildi! Şampiyon seçimi bekleniyor.';
                         }
-                    } else if (data.type === 'ACTION_RESULT') {
-                        if (data.success && data.completed) {
-                            csLockBtn.innerText = 'KİLİTLENDİ ✓';
-                            csLockBtn.disabled = true;
-                            triggerVibrate();
+                    } else if (data.type === 'SPELLS_CATALOG') {
+                        if (Array.isArray(data.spells)) {
+                            spellsCatalog = data.spells;
+                            updateSpellsUI(currentSpell1Id, currentSpell2Id);
                         }
+                    } else if (data.type === 'RECOMMENDED_RUNES') {
+                        renderRecommendedRunes(data.pages || []);
+                    } else if (data.type === 'RUNES_RESULT') {
+                        if (data.success) {
+                            applyRunesBtn.innerText = '✓ UYGULANDI';
+                            applyRunesBtn.classList.add('applied');
+                            applyRunesBtn.disabled = false;
+                            setTimeout(() => {
+                                applyRunesBtn.innerText = '⚡ SEÇİLİ RÜNÜ UYGULA';
+                                applyRunesBtn.classList.remove('applied');
+                            }, 2500);
+                        } else {
+                            applyRunesBtn.innerText = '⚡ SEÇİLİ RÜNÜ UYGULA';
+                            applyRunesBtn.disabled = (selectedRunePageIndex < 0);
+                            showErrorToast(data.error || 'Rün sayfası istemciye uygulanamadı.');
+                        }
+                    } else if (data.type === 'SPELLS_RESULT') {
+                        if (data.success) {
+                            updateSpellsUI(data.spell1Id, data.spell2Id);
+                        } else {
+                            showErrorToast(data.error || 'Seçilen sihirdar büyüsü bu oyun modunda kullanılamaz.');
+                        }
+                    } else if (data.type === 'ACTION_RESULT') {
+                        isSubmittingAction = false;
+                        if (data.success && data.completed) {
+                            triggerVibrate();
+                        } else if (!data.success && data.error) {
+                            showErrorToast(data.error);
+                        }
+                        updateActionButtonsFromState();
                     } else if (data.type === 'REVOKED' || data.type === 'UNAUTHORIZED') {
                         localStorage.removeItem('riftpilot_session_token');
                         setStatus('Yetki İptal Edildi', 'error');
@@ -1192,6 +2361,24 @@ class ChampSelectActionRequest(BaseModel):
     completed: bool = Field(default=True, description="True to lock in, False to hover")
 
 
+class SetSpellsRequest(BaseModel):
+    """Payload schema for updating summoner spells."""
+
+    spell1Id: int = Field(..., description="Spell 1 (D) numeric ID")
+    spell2Id: int = Field(..., description="Spell 2 (F) numeric ID")
+
+
+class ApplyRunePageRequest(BaseModel):
+    """Payload schema for applying a user-selected rune page."""
+
+    name: str = Field(default="RiftPilot", description="Rune page name")
+    primaryStyleId: int = Field(..., gt=0, description="Primary tree ID")
+    subStyleId: int = Field(..., gt=0, description="Secondary tree ID")
+    selectedPerkIds: list[int] = Field(
+        ..., min_length=1, description="Selected perk IDs"
+    )
+
+
 def create_app(
     ott_manager: OTTManager,
     session_manager: SessionManager,
@@ -1200,20 +2387,39 @@ def create_app(
     enable_monitor: bool = True,
     poll_interval: float = 1.0,
 ) -> FastAPI:
-    """Factory creating and configuring the FastAPI Web Hub application.
-
-    Args:
-        ott_manager: Core domain One-Time Token manager for burn-on-read pairing.
-        session_manager: Core domain session manager for zero-trust validation.
-        lcu_adapter: Optional outbound LCU port adapter for League Client interaction.
-        ui_bridge: Optional LcuUiBridge for cross-thread Qt signaling to desktop window.
-        enable_monitor: Whether to run background LCU discovery and state sync loop.
-        poll_interval: Polling frequency in seconds for background LCU health check.
-
-    Returns:
-        Configured FastAPI application instance with HTTP and WebSocket routes.
-    """
+    """Factory creating and configuring the FastAPI Web Hub application."""
     active_connections: Set[WebSocket] = set()
+    in_flight_action_lock = asyncio.Lock()
+
+    async def _build_enriched_champ_select_payload(
+        session: ChampSelectSession | None,
+    ) -> dict[str, Any]:
+        """Build centralized Champ Select state combining session, modeContext, and eligibility."""
+        if lcu_adapter is not None:
+            mode_ctx = await lcu_adapter.get_game_mode_context()
+            grid = await lcu_adapter.get_grid_champions()
+            disabled_ids = {c.id for c in grid if c.disabled}
+        else:
+            mode_ctx = GameModeContext()
+            disabled_ids = set()
+
+        eligibility = compute_champ_select_stage_and_eligibility(
+            session=session,
+            mode_context=mode_ctx,
+            disabled_champion_ids=disabled_ids,
+        )
+
+        session_dict: dict[str, Any] | None = None
+        if session is not None:
+            session_dict = session.to_dict()
+            session_dict["modeContext"] = mode_ctx.to_dict()
+            session_dict["eligibility"] = eligibility.to_dict()
+
+        return {
+            "session": session_dict,
+            "modeContext": mode_ctx.to_dict(),
+            "eligibility": eligibility.to_dict(),
+        }
 
     async def broadcast_phase(
         phase: GameflowPhase | str, lcu_connected: bool | None = None
@@ -1239,10 +2445,13 @@ def create_app(
             active_connections.discard(ws)
 
     async def broadcast_champ_select(session: ChampSelectSession | None) -> None:
-        """Broadcast live champ select session state to all active WebSocket clients."""
+        """Broadcast live centralized champ select state to all active WebSocket clients."""
+        enriched = await _build_enriched_champ_select_payload(session)
         payload: dict[str, Any] = {
             "type": "CHAMP_SELECT_UPDATE",
-            "data": session.to_dict() if session is not None else None,
+            "data": enriched["session"],
+            "modeContext": enriched["modeContext"],
+            "eligibility": enriched["eligibility"],
         }
         dead_connections: list[WebSocket] = []
 
@@ -1373,6 +2582,85 @@ def create_app(
     app.state.active_connections = active_connections
     app.state.enable_monitor = enable_monitor
 
+    async def _validate_and_execute_champ_select_action(
+        action_id: int,
+        champion_id: int,
+        completed: bool,
+    ) -> tuple[bool, int, str, str]:
+        """Re-verify live LCU state before executing a pick/ban hover or lock command."""
+        if lcu_adapter is None:
+            return False, action_id, "LCU_UNAVAILABLE", "LCU adaptörü kullanılamıyor."
+
+        async with in_flight_action_lock:
+            session = await lcu_adapter.get_champ_select_session()
+            mode_ctx = await lcu_adapter.get_game_mode_context()
+            grid = await lcu_adapter.get_grid_champions()
+            disabled_ids = {c.id for c in grid if c.disabled}
+
+            validation = validate_champ_select_command(
+                session=session,
+                mode_context=mode_ctx,
+                action_id=action_id,
+                champion_id=champion_id,
+                completed=completed,
+                disabled_champion_ids=disabled_ids,
+            )
+            if not validation.allowed or validation.resolved_action is None:
+                return (
+                    False,
+                    action_id,
+                    validation.error_code,
+                    validation.message,
+                )
+
+            resolved_id = validation.resolved_action.id
+
+            if completed and validation.resolved_action.champion_id != champion_id:
+                await lcu_adapter.patch_champ_select_action(
+                    action_id=resolved_id,
+                    champion_id=champion_id,
+                    completed=False,
+                )
+
+            success = await lcu_adapter.patch_champ_select_action(
+                action_id=resolved_id,
+                champion_id=champion_id,
+                completed=completed,
+            )
+            if not success:
+                return (
+                    False,
+                    resolved_id,
+                    "LCU_REJECTED",
+                    "Oyun istemcisi (LCU) işlemi reddetti.",
+                )
+            return True, resolved_id, "", ""
+
+    async def _validate_and_set_spells(
+        spell1_id: int, spell2_id: int
+    ) -> tuple[bool, str]:
+        """Validate summoner spells against the active game mode and apply via LCU."""
+        if lcu_adapter is None:
+            return False, "LCU adaptörü kullanılamıyor."
+
+        if spell1_id <= 0 or spell2_id <= 0 or spell1_id == spell2_id:
+            return False, "İki farklı geçerli sihirdar büyüsü seçilmelidir."
+
+        mode_ctx = await lcu_adapter.get_game_mode_context()
+        available_spells = await lcu_adapter.get_available_summoner_spells(mode_ctx.game_mode)
+        valid_ids = {s.id for s in available_spells}
+
+        if spell1_id not in valid_ids or spell2_id not in valid_ids:
+            return (
+                False,
+                f"Seçilen sihirdar büyüsü '{mode_ctx.display_name}' modunda kullanılamaz.",
+            )
+
+        success = await lcu_adapter.set_summoner_spells(spell1_id, spell2_id)
+        if not success:
+            return False, "Oyun istemcisi sihirdar büyüsü değişikliğini reddetti."
+        return True, ""
+
     # =========================================================================
     # HTTP Routes
     # =========================================================================
@@ -1384,10 +2672,7 @@ def create_app(
 
     @app.post("/api/pair")
     async def pair_device(payload: PairRequest) -> dict[str, Any]:
-        """Verify single-use OTT and establish an authenticated device session.
-
-        Enforces burn-on-read security: the token is purged immediately.
-        """
+        """Verify single-use OTT and establish an authenticated device session."""
         if not ott_manager.verify_and_burn(payload.ott):
             raise HTTPException(status_code=401, detail="Invalid or expired OTT")
 
@@ -1411,42 +2696,144 @@ def create_app(
 
     @app.get("/api/champ-select")
     async def get_champ_select_state() -> dict[str, Any]:
-        """Fetch current champion select session state."""
+        """Fetch current centralized champion select session, modeContext, and eligibility."""
         if lcu_adapter is None:
-            return {"session": None}
+            return {"session": None, "modeContext": None, "eligibility": None}
         session = await lcu_adapter.get_champ_select_session()
-        return {"session": session.to_dict() if session is not None else None}
+        return await _build_enriched_champ_select_payload(session)
 
     @app.get("/api/champ-select/grid")
     async def get_champ_select_grid() -> dict[str, Any]:
-        """Fetch list of selectable and bannable grid champions."""
+        """Fetch list of selectable and bannable grid champions with live ban/disabled status."""
         if lcu_adapter is None:
             return {"champions": []}
         champions = await lcu_adapter.get_grid_champions()
-        return {"champions": [c.to_dict() for c in champions]}
+        session = await lcu_adapter.get_champ_select_session()
+        banned_ids = session.get_all_banned_ids() if session is not None else set()
+        unavailable_ids = session.get_unavailable_pick_ids() if session is not None else set()
+        result = []
+        for champ in champions:
+            d = champ.to_dict()
+            d["banned"] = champ.id in banned_ids
+            d["unavailablePick"] = champ.id in unavailable_ids
+            d["selectable"] = (not champ.disabled) and (champ.id not in banned_ids) and (champ.id not in unavailable_ids)
+            result.append(d)
+        return {"champions": result}
 
     @app.post("/api/champ-select/action")
     async def perform_champ_select_action(
         payload: ChampSelectActionRequest,
     ) -> dict[str, Any]:
-        """Hover or lock-in a pick or ban action."""
+        """Hover or lock-in a pick or ban action after server-side state re-validation."""
         if lcu_adapter is None:
             raise HTTPException(status_code=503, detail="LCU adapter unavailable")
 
-        action_id = payload.actionId
-        if action_id <= 0:
-            cs = await lcu_adapter.get_champ_select_session()
-            if cs is not None:
-                act = cs.get_active_action()
-                if act is not None:
-                    action_id = act.id
-
-        success = await lcu_adapter.patch_champ_select_action(
-            action_id=action_id,
+        success, resolved_id, err_code, err_msg = await _validate_and_execute_champ_select_action(
+            action_id=payload.actionId,
             champion_id=payload.championId,
             completed=payload.completed,
         )
-        return {"success": bool(success), "actionId": action_id}
+        if not success:
+            status_code = 409 if err_code in (
+                "NOT_YOUR_PICK_TURN",
+                "NOT_YOUR_BAN_TURN",
+                "ACTION_ALREADY_COMPLETED",
+                "PHASE_ENDED",
+                "TIMER_EXPIRED",
+                "NO_ACTIVE_SESSION",
+            ) else 400
+            raise HTTPException(
+                status_code=status_code,
+                detail={"errorCode": err_code, "message": err_msg},
+            )
+        return {"success": True, "actionId": resolved_id}
+
+    @app.get("/api/spells")
+    async def get_summoner_spells_endpoint(
+        gameMode: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch summoner spells valid for the active or specified game mode."""
+        if lcu_adapter is not None:
+            mode_ctx = await lcu_adapter.get_game_mode_context()
+            effective_mode = gameMode or mode_ctx.game_mode
+            spells = await lcu_adapter.get_available_summoner_spells(effective_mode)
+        else:
+            effective_mode = gameMode or "CLASSIC"
+            spells = get_spells_for_mode(effective_mode)
+        return {
+            "gameMode": effective_mode,
+            "spells": [s.to_dict() for s in spells],
+        }
+
+    @app.post("/api/spells")
+    async def set_summoner_spells_endpoint(
+        payload: SetSpellsRequest,
+    ) -> dict[str, Any]:
+        """Validate against active game mode and assign D/F summoner spells."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        success, err_msg = await _validate_and_set_spells(
+            payload.spell1Id, payload.spell2Id
+        )
+        if not success:
+            raise HTTPException(status_code=400, detail=err_msg)
+        return {
+            "success": True,
+            "spell1Id": payload.spell1Id,
+            "spell2Id": payload.spell2Id,
+        }
+
+    @app.get("/api/runes/recommended")
+    async def get_recommended_runes_endpoint(
+        championId: int = 0,
+        position: str = "",
+        mapId: int = 0,
+    ) -> dict[str, Any]:
+        """Fetch up to 3 official recommended rune pages from the LCU client (no fake data)."""
+        if lcu_adapter is None or championId <= 0:
+            return {"championId": championId, "pages": [], "available": False}
+
+        eff_map = mapId
+        if eff_map <= 0:
+            ctx = await lcu_adapter.get_game_mode_context()
+            eff_map = ctx.map_id
+
+        pages = await lcu_adapter.get_recommended_rune_pages(
+            champion_id=championId,
+            position=position,
+            map_id=eff_map,
+        )
+        return {
+            "championId": championId,
+            "pages": [p.to_dict() for p in pages],
+            "available": len(pages) > 0,
+        }
+
+    @app.get("/api/runes/current")
+    async def get_current_runes_endpoint() -> dict[str, Any]:
+        """Fetch current active rune page from LCU."""
+        if lcu_adapter is None:
+            return {"page": None}
+        page = await lcu_adapter.get_current_rune_page()
+        return {"page": page.to_dict() if page is not None else None}
+
+    @app.post("/api/runes/apply")
+    async def apply_runes_endpoint(
+        payload: ApplyRunePageRequest,
+    ) -> dict[str, Any]:
+        """Apply a user-confirmed rune page to the League client."""
+        if lcu_adapter is None:
+            raise HTTPException(status_code=503, detail="LCU adapter unavailable")
+        page = RunePage(
+            name=payload.name,
+            primary_style_id=payload.primaryStyleId,
+            sub_style_id=payload.subStyleId,
+            selected_perk_ids=payload.selectedPerkIds,
+        )
+        success = await lcu_adapter.apply_rune_page(page)
+        if not success:
+            raise HTTPException(status_code=400, detail="Rün sayfası istemciye uygulanamadı.")
+        return {"success": True}
 
     # =========================================================================
     # WebSocket Route
@@ -1456,10 +2843,7 @@ def create_app(
     async def websocket_endpoint(
         websocket: WebSocket, token: str | None = None
     ) -> None:
-        """Real-time authenticated WebSocket gateway for mobile clients.
-
-        Enforces zero-trust token authentication and continuous validation.
-        """
+        """Real-time authenticated WebSocket gateway for mobile clients."""
         await websocket.accept()
 
         session: DeviceSession | None = None
@@ -1479,7 +2863,6 @@ def create_app(
         active_connections.add(websocket)
 
         try:
-            # Transmit initial connection welcome packet with current gameflow phase & LCU status
             current_phase = "None"
             lcu_connected = False
             if lcu_adapter is not None:
@@ -1555,15 +2938,16 @@ def create_app(
                         }
                     )
                 elif cmd_type == "GET_CHAMP_SELECT":
-                    cs_data = None
+                    cs_obj = None
                     if lcu_adapter is not None:
-                        cs = await lcu_adapter.get_champ_select_session()
-                        if cs is not None:
-                            cs_data = cs.to_dict()
+                        cs_obj = await lcu_adapter.get_champ_select_session()
+                    enriched = await _build_enriched_champ_select_payload(cs_obj)
                     await websocket.send_json(
                         {
                             "type": "CHAMP_SELECT_UPDATE",
-                            "data": cs_data,
+                            "data": enriched["session"],
+                            "modeContext": enriched["modeContext"],
+                            "eligibility": enriched["eligibility"],
                         }
                     )
                 elif cmd_type == "GET_GRID_CHAMPIONS":
@@ -1578,36 +2962,111 @@ def create_app(
                         }
                     )
                 elif cmd_type == "CHAMP_SELECT_ACTION":
-                    action_id = int(data.get("actionId", 0))
-                    champion_id = int(data.get("championId", 0))
+                    action_id = int(data.get("actionId", 0) or 0)
+                    champion_id = int(data.get("championId", 0) or 0)
                     completed = bool(data.get("completed", True))
-                    success = False
 
-                    if lcu_adapter is not None:
-                        # Auto-resolve action ID if 0 or not provided
-                        if action_id <= 0:
-                            try:
-                                cs = await lcu_adapter.get_champ_select_session()
-                                if cs is not None:
-                                    act = cs.get_active_action()
-                                    if act is not None:
-                                        action_id = act.id
-                            except Exception as exc:
-                                logger.debug("Action auto-resolve error: %s", exc)
-
-                        success = await lcu_adapter.patch_champ_select_action(
+                    success, resolved_id, err_code, err_msg = (
+                        await _validate_and_execute_champ_select_action(
                             action_id=action_id,
                             champion_id=champion_id,
                             completed=completed,
                         )
+                    )
 
                     await websocket.send_json(
                         {
                             "type": "ACTION_RESULT",
-                            "actionId": action_id,
+                            "actionId": resolved_id,
                             "championId": champion_id,
                             "completed": completed,
                             "success": bool(success),
+                            "errorCode": err_code,
+                            "error": err_msg,
+                        }
+                    )
+                elif cmd_type == "GET_SPELLS":
+                    req_mode = data.get("gameMode")
+                    if lcu_adapter is not None:
+                        ctx = await lcu_adapter.get_game_mode_context()
+                        eff_mode = str(req_mode or ctx.game_mode)
+                        spells = await lcu_adapter.get_available_summoner_spells(eff_mode)
+                    else:
+                        eff_mode = str(req_mode or "CLASSIC")
+                        spells = get_spells_for_mode(eff_mode)
+
+                    await websocket.send_json(
+                        {
+                            "type": "SPELLS_CATALOG",
+                            "gameMode": eff_mode,
+                            "spells": [s.to_dict() for s in spells],
+                        }
+                    )
+                elif cmd_type == "SET_SPELLS":
+                    spell1_id = int(data.get("spell1Id", 0) or 0)
+                    spell2_id = int(data.get("spell2Id", 0) or 0)
+                    success, err_msg = await _validate_and_set_spells(spell1_id, spell2_id)
+                    await websocket.send_json(
+                        {
+                            "type": "SPELLS_RESULT",
+                            "spell1Id": spell1_id,
+                            "spell2Id": spell2_id,
+                            "success": bool(success),
+                            "error": err_msg,
+                        }
+                    )
+                elif cmd_type == "GET_RECOMMENDED_RUNES":
+                    champ_id = int(data.get("championId", 0) or 0)
+                    pos = str(data.get("position", "") or "")
+                    map_id = int(data.get("mapId", 0) or 0)
+                    pages_list = []
+                    if lcu_adapter is not None and champ_id > 0:
+                        if map_id <= 0:
+                            ctx = await lcu_adapter.get_game_mode_context()
+                            map_id = ctx.map_id
+                        rec_pages = await lcu_adapter.get_recommended_rune_pages(
+                            champion_id=champ_id,
+                            position=pos,
+                            map_id=map_id,
+                        )
+                        pages_list = [p.to_dict() for p in rec_pages]
+                    await websocket.send_json(
+                        {
+                            "type": "RECOMMENDED_RUNES",
+                            "championId": champ_id,
+                            "pages": pages_list,
+                            "available": len(pages_list) > 0,
+                        }
+                    )
+                elif cmd_type == "APPLY_RUNES":
+                    page_data = data.get("page")
+                    success = False
+                    err_msg = ""
+                    if lcu_adapter is not None:
+                        if isinstance(page_data, dict):
+                            primary_id = int(page_data.get("primaryStyleId", 0) or 0)
+                            sub_id = int(page_data.get("subStyleId", 0) or 0)
+                            perks = [int(x) for x in (page_data.get("selectedPerkIds") or [])]
+                            if primary_id > 0 and sub_id > 0 and perks:
+                                page = RunePage(
+                                    name=str(page_data.get("name", "RiftPilot")),
+                                    primary_style_id=primary_id,
+                                    sub_style_id=sub_id,
+                                    selected_perk_ids=perks,
+                                )
+                                success = await lcu_adapter.apply_rune_page(page)
+                                if not success:
+                                    err_msg = "İstemci rün sayfasını reddetti."
+                            else:
+                                err_msg = "Geçersiz rün sayfası verisi."
+                        else:
+                            err_msg = "Uygulanacak rün sayfası seçilmedi (otomatik seçim yapılmaz)."
+
+                    await websocket.send_json(
+                        {
+                            "type": "RUNES_RESULT",
+                            "success": bool(success),
+                            "error": err_msg,
                         }
                     )
                 elif cmd_type == "PING":
@@ -1653,4 +3112,11 @@ def create_app(
     return app
 
 
-__all__ = ["INDEX_HTML", "ChampSelectActionRequest", "PairRequest", "create_app"]
+__all__ = [
+    "ApplyRunePageRequest",
+    "ChampSelectActionRequest",
+    "INDEX_HTML",
+    "PairRequest",
+    "SetSpellsRequest",
+    "create_app",
+]

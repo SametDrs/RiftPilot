@@ -1,13 +1,14 @@
-"""RiftPilot UI — PySide6 Desktop Main Window.
+"""RiftPilot UI — PySide6 Modernized Desktop Main Window (LeagueCompanion Aesthetic).
 
-Implements the desktop companion GUI:
-- Displays local LAN pairing QR code with auto-refresh / manual refresh.
-- Displays active LAN hub endpoint (IP:Port).
-- Manages connected mobile device sessions with live revocation controls.
-- Displays League Client (LCU) connection status and live gameflow phase.
+Implements the modernized desktop companion GUI:
+- League of Legends / LeagueCompanion inspired dark Hextech aesthetic.
+- 3-Tab structured layout:
+  1. 📊 Genel Bakış (Dashboard): Live LCU status, gameflow phase hero card, LAN Hub status.
+  2. 📱 Mobil Eşleştirme (QR & Devices): Premium QR card, active device list, revocation.
+  3. ⚙️ Sistem & Ayarlar (Settings): Network config, LCU discovery info, architecture notes.
 - Thread-safe LCU UI Bridge for cross-thread async Qt signaling.
 - Periodic timer synchronization for real-time device updates and LCU monitoring.
-- Provides dark-themed modern desktop aesthetic.
+- Scalable, responsive layout with fluid window resizing.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QTimer, Qt, Signal
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QPushButton,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -41,75 +43,161 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("RiftPilot.UI")
 
-DARK_STYLE = """
+HEXTECH_STYLE = """
+/* Global Window & Typography */
 QMainWindow {
-    background-color: #0b0e14;
+    background-color: #070b13;
 }
 QWidget {
-    color: #e6edf3;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #f0e6d2;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    selection-background-color: #0ac8b9;
+    selection-color: #070b13;
 }
+
+/* Tabs Navigation */
+QTabWidget::pane {
+    border: 1px solid rgba(200, 170, 110, 0.25);
+    border-radius: 12px;
+    background-color: #0b111c;
+    top: -1px;
+}
+QTabBar::tab {
+    background: #0d1527;
+    color: #a09b8c;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 10px 20px;
+    margin-right: 4px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border: 1px solid rgba(200, 170, 110, 0.15);
+    border-bottom: none;
+    min-width: 100px;
+}
+QTabBar::tab:selected {
+    background: linear-gradient(180deg, #16243d 0%, #0b111c 100%);
+    color: #f0e6d2;
+    border-color: #c8aa6e;
+    border-bottom: 2px solid #c8aa6e;
+}
+QTabBar::tab:hover:!selected {
+    background: #14223d;
+    color: #c8aa6e;
+}
+
+/* Hextech Cards & Panels */
 QFrame#card {
-    background-color: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #121a2c, stop:1 #0c1220);
+    border: 1px solid rgba(200, 170, 110, 0.25);
+    border-radius: 12px;
+    padding: 14px;
+}
+QFrame#heroCard {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(10, 200, 185, 0.12), stop:1 rgba(200, 170, 110, 0.08));
+    border: 1px solid rgba(10, 200, 185, 0.4);
+    border-radius: 12px;
+    padding: 16px;
+}
+QFrame#qrFrame {
+    background-color: #060911;
+    border: 2px solid rgba(200, 170, 110, 0.4);
+    border-radius: 12px;
     padding: 12px;
 }
-QLabel#title {
-    color: #58a6ff;
-    font-size: 16px;
-    font-weight: bold;
+
+/* Headers & Labels */
+QLabel#brandTitle {
+    color: #f0e6d2;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+}
+QLabel#sectionTitle {
+    color: #c8aa6e;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
 }
 QLabel#subtitle {
-    color: #8b949e;
+    color: #a09b8c;
     font-size: 12px;
+    line-height: 1.4;
+}
+QLabel#heroValue {
+    color: #0ac8b9;
+    font-size: 18px;
+    font-weight: 800;
+}
+QLabel#endpointBadge {
+    background: rgba(10, 200, 185, 0.12);
+    color: #0ac8b9;
+    border: 1px solid rgba(10, 200, 185, 0.35);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: "Cascadia Code", "Consolas", monospace;
 }
 QLabel#statusBadge {
-    background-color: rgba(46, 160, 67, 0.15);
-    color: #3fb950;
-    border: 1px solid #2ea043;
-    border-radius: 12px;
-    padding: 4px 10px;
+    background-color: rgba(0, 255, 136, 0.12);
+    color: #00ff88;
+    border: 1px solid rgba(0, 255, 136, 0.35);
+    border-radius: 14px;
+    padding: 4px 12px;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: 0.5px;
 }
+
+/* Modern Action Buttons */
 QPushButton#refreshBtn {
-    background-color: #21262d;
-    color: #c9d1d9;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 6px 14px;
-    font-size: 12px;
-    font-weight: 600;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #c8aa6e, stop:1 #785a28);
+    color: #070b13;
+    border: 1px solid #f0e6d2;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
 }
 QPushButton#refreshBtn:hover {
-    background-color: #30363d;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f0e6d2, stop:1 #a88a4e);
+}
+QPushButton#refreshBtn:pressed {
+    background: #785a28;
 }
 QPushButton#revokeBtn {
-    background-color: rgba(248, 81, 73, 0.15);
-    color: #f85149;
-    border: 1px solid #da3633;
-    border-radius: 4px;
-    padding: 4px 8px;
+    background-color: rgba(232, 64, 87, 0.12);
+    color: #ff7888;
+    border: 1px solid rgba(232, 64, 87, 0.45);
+    border-radius: 6px;
+    padding: 6px 12px;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
 }
 QPushButton#revokeBtn:hover {
-    background-color: #da3633;
+    background-color: #e84057;
     color: white;
 }
+
+/* Device List Widget */
 QListWidget {
-    background-color: #0d1117;
-    border: 1px solid #21262d;
-    border-radius: 6px;
-    padding: 4px;
+    background-color: #080d16;
+    border: 1px solid rgba(200, 170, 110, 0.2);
+    border-radius: 8px;
+    padding: 6px;
 }
 QListWidget::item {
-    background-color: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    margin-bottom: 4px;
-    padding: 6px;
+    background-color: #0f1726;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    margin-bottom: 6px;
+    padding: 4px;
+}
+QListWidget::item:hover {
+    border-color: rgba(200, 170, 110, 0.4);
 }
 """
 
@@ -126,40 +214,29 @@ class LcuUiBridge(QObject):
         lcu_adapter: ILcuPort | None = None,
         parent: QObject | None = None,
     ) -> None:
-        """Initialize LCU bridge and optionally subscribe to adapter events.
-
-        Args:
-            lcu_adapter: Optional outbound LCU adapter.
-            parent: Optional parent QObject.
-        """
         super().__init__(parent)
         self.lcu_adapter = lcu_adapter
         if self.lcu_adapter is not None:
             self.lcu_adapter.subscribe_phase_change(self.notify_phase_change)
 
     def notify_phase_change(self, phase: GameflowPhase | str) -> None:
-        """Emit phase_changed signal in a thread-safe manner."""
         self.phase_changed.emit(phase)
 
     def on_phase_change(self, phase: GameflowPhase | str) -> None:
-        """Callback alias for notify_phase_change."""
         self.notify_phase_change(phase)
 
     def notify_status_change(self, status: LcuConnectionStatus | str) -> None:
-        """Emit connection_status_changed signal."""
         self.connection_status_changed.emit(status)
 
     def on_status_change(self, status: LcuConnectionStatus | str) -> None:
-        """Callback alias for notify_status_change."""
         self.notify_status_change(status)
 
     def notify_device_list_changed(self) -> None:
-        """Emit device_list_changed signal."""
         self.device_list_changed.emit()
 
 
 class MainWindow(QMainWindow):
-    """Main desktop application window for RiftPilot."""
+    """Modern LeagueCompanion-styled desktop companion application for RiftPilot."""
 
     def __init__(
         self,
@@ -170,16 +247,6 @@ class MainWindow(QMainWindow):
         lcu_adapter: ILcuPort | None = None,
         parent: QWidget | None = None,
     ) -> None:
-        """Initialize the desktop companion window.
-
-        Args:
-            ott_manager: Core domain One-Time Token manager.
-            session_manager: Core domain device session manager.
-            lan_ip: Active local IPv4 address of the host machine.
-            port: Local HTTP/WS port.
-            lcu_adapter: Optional outbound LCU port adapter.
-            parent: Optional parent QWidget.
-        """
         if isinstance(lcu_adapter, QWidget) and parent is None:
             parent = lcu_adapter
             lcu_adapter = None
@@ -191,9 +258,10 @@ class MainWindow(QMainWindow):
         self.port = port
         self.lcu_adapter = lcu_adapter
 
-        self.setWindowTitle("RiftPilot — League Remote Companion")
-        self.resize(420, 680)
-        self.setStyleSheet(DARK_STYLE)
+        self.setWindowTitle("RiftPilot — Hextech League Companion")
+        self.resize(500, 720)
+        self.setMinimumSize(440, 640)
+        self.setStyleSheet(HEXTECH_STYLE)
 
         self._setup_ui()
 
@@ -222,67 +290,134 @@ class MainWindow(QMainWindow):
         self.poll_timer.start()
 
     def _setup_ui(self) -> None:
-        """Construct child layout and widgets."""
+        """Construct child layout and widgets with 3-tab modern structure."""
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(18, 18, 18, 18)
+        main_layout.setSpacing(14)
 
-        # 1. Header (Logo & LAN Status)
+        # 1. Header (Brand Crest & LAN Hub Status)
         header_layout = QHBoxLayout()
         title_box = QVBoxLayout()
-        title_label = QLabel("🎮 RiftPilot", self)
-        title_label.setObjectName("title")
-        subtitle_label = QLabel("League of Legends Uzaktan Yönetim", self)
+        title_box.setSpacing(2)
+        brand_title = QLabel("⚡ RiftPilot", self)
+        brand_title.setObjectName("brandTitle")
+        subtitle_label = QLabel("League of Legends Uzaktan Yönetim İstasyonu", self)
         subtitle_label.setObjectName("subtitle")
-        title_box.addWidget(title_label)
+        title_box.addWidget(brand_title)
         title_box.addWidget(subtitle_label)
 
-        status_badge = QLabel("● LAN Hub Aktif", self)
+        status_badge = QLabel("● LAN HUB AKTİF", self)
         status_badge.setObjectName("statusBadge")
         header_layout.addLayout(title_box)
         header_layout.addStretch()
         header_layout.addWidget(status_badge)
         main_layout.addLayout(header_layout)
 
-        # 2. LAN Endpoint Info
-        self.lan_info_label = QLabel(
-            f"Adres: http://{self.lan_ip}:{self.port}/", self
-        )
-        self.lan_info_label.setObjectName("subtitle")
-        self.lan_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(self.lan_info_label)
+        # 2. Modern Tabbed Layout
+        self.tabs = QTabWidget(self)
 
-        # 3. LCU & Game Status Card
-        lcu_card = QFrame(self)
-        lcu_card.setObjectName("card")
-        lcu_layout = QVBoxLayout(lcu_card)
-        lcu_layout.setContentsMargins(12, 10, 12, 10)
-        lcu_layout.setSpacing(6)
+        # ---- Tab 1: Dashboard (Genel Bakış) ----
+        dashboard_tab = QWidget()
+        dash_layout = QVBoxLayout(dashboard_tab)
+        dash_layout.setContentsMargins(14, 14, 14, 14)
+        dash_layout.setSpacing(12)
+
+        # LCU Hero Card
+        lcu_hero = QFrame(self)
+        lcu_hero.setObjectName("heroCard")
+        lcu_hero_layout = QVBoxLayout(lcu_hero)
+        lcu_hero_layout.setSpacing(8)
+
+        lcu_title_row = QHBoxLayout()
+        lcu_title_lbl = QLabel("LEAGUE CLIENT UPDATE (LCU)", self)
+        lcu_title_lbl.setObjectName("sectionTitle")
+        lcu_title_row.addWidget(lcu_title_lbl)
+        lcu_title_row.addStretch()
+        lcu_hero_layout.addLayout(lcu_title_row)
 
         self.lcu_status_label = QLabel("🔴 LoL İstemcisi: İstemci Bekleniyor...", self)
-        self.lcu_status_label.setObjectName("subtitle")
-        lcu_layout.addWidget(self.lcu_status_label)
+        self.lcu_status_label.setObjectName("heroValue")
+        lcu_hero_layout.addWidget(self.lcu_status_label)
 
         self.gameflow_label = QLabel("🎮 Oyun Durumu: -", self)
         self.gameflow_label.setObjectName("subtitle")
-        lcu_layout.addWidget(self.gameflow_label)
+        lcu_hero_layout.addWidget(self.gameflow_label)
+        dash_layout.addWidget(lcu_hero)
 
-        main_layout.addWidget(lcu_card)
+        # LAN Endpoint & Quick Connect Card
+        lan_card = QFrame(self)
+        lan_card.setObjectName("card")
+        lan_layout = QVBoxLayout(lan_card)
+        lan_layout.setSpacing(8)
 
-        # 4. QR Code Card
+        lan_title = QLabel("YEREL AĞ ERİŞİM NOKTASI (LAN HUB)", self)
+        lan_title.setObjectName("sectionTitle")
+        lan_layout.addWidget(lan_title)
+
+        self.lan_info_label = QLabel(
+            f"Adres: http://{self.lan_ip}:{self.port}/", self
+        )
+        self.lan_info_label.setObjectName("endpointBadge")
+        self.lan_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lan_layout.addWidget(self.lan_info_label)
+
+        lan_hint = QLabel("Aynı Wi-Fi ağına bağlı mobil cihazınızın tarayıcısından bağlanabilirsiniz.", self)
+        lan_hint.setObjectName("subtitle")
+        lan_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lan_layout.addWidget(lan_hint)
+        dash_layout.addWidget(lan_card)
+
+        # Connected Devices Summary Card on Dashboard
+        summary_card = QFrame(self)
+        summary_card.setObjectName("card")
+        summary_layout = QHBoxLayout(summary_card)
+        self.active_count_label = QLabel("📱 Bağlı Cihaz: 0", self)
+        self.active_count_label.setObjectName("sectionTitle")
+        summary_layout.addWidget(self.active_count_label)
+        summary_layout.addStretch()
+
+        to_pairing_btn = QPushButton("Eşleştirmeye Git →", self)
+        to_pairing_btn.setObjectName("refreshBtn")
+        to_pairing_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        summary_layout.addWidget(to_pairing_btn)
+        dash_layout.addWidget(summary_card)
+
+        dash_layout.addStretch()
+        self.tabs.addTab(dashboard_tab, "📊 Genel Bakış")
+
+        # ---- Tab 2: Mobil Eşleştirme (QR & Cihazlar) ----
+        pairing_tab = QWidget()
+        pairing_layout = QVBoxLayout(pairing_tab)
+        pairing_layout.setContentsMargins(14, 14, 14, 14)
+        pairing_layout.setSpacing(12)
+
+        # Modern QR Card
         qr_card = QFrame(self)
         qr_card.setObjectName("card")
         qr_layout = QVBoxLayout(qr_card)
         qr_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        qr_layout.setSpacing(10)
+
+        qr_title = QLabel("TEK KULLANIMLIK QR EŞLEŞTİRME", self)
+        qr_title.setObjectName("sectionTitle")
+        qr_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        qr_layout.addWidget(qr_title)
+
+        qr_frame = QFrame(self)
+        qr_frame.setObjectName("qrFrame")
+        qr_frame_layout = QVBoxLayout(qr_frame)
+        qr_frame_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        qr_frame_layout.setContentsMargins(6, 6, 6, 6)
 
         self.qr_label = QLabel(self)
         self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.qr_label.setFixedSize(240, 240)
-        qr_layout.addWidget(self.qr_label)
+        qr_frame_layout.addWidget(self.qr_label)
+        qr_layout.addWidget(qr_frame)
 
-        hint_label = QLabel("Telefon kamerasıyla QR kodu tarayın", self)
+        hint_label = QLabel("Telefon kamerasıyla QR kodu tarayın (Burn-on-Read OTT)", self)
         hint_label.setObjectName("subtitle")
         hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         qr_layout.addWidget(hint_label)
@@ -291,24 +426,79 @@ class MainWindow(QMainWindow):
         self.refresh_button.setObjectName("refreshBtn")
         self.refresh_button.clicked.connect(self.refresh_qr)
         qr_layout.addWidget(self.refresh_button)
-        main_layout.addWidget(qr_card)
+        pairing_layout.addWidget(qr_card)
 
-        # 5. Connected Devices Section
-        devices_header_layout = QHBoxLayout()
-        devices_title = QLabel("📱 Bağlı Cihazlar", self)
-        devices_title.setObjectName("title")
-        devices_header_layout.addWidget(devices_title)
-        devices_header_layout.addStretch()
-        main_layout.addLayout(devices_header_layout)
+        # Connected Devices Section
+        devices_card = QFrame(self)
+        devices_card.setObjectName("card")
+        devices_layout = QVBoxLayout(devices_card)
+        devices_layout.setSpacing(8)
+
+        devices_title = QLabel("📱 Bağlı Cihazlar & Yetkilendirme", self)
+        devices_title.setObjectName("sectionTitle")
+        devices_layout.addWidget(devices_title)
 
         self.empty_state_label = QLabel("Henüz bağlı cihaz yok.", self)
         self.empty_state_label.setObjectName("subtitle")
         self.empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(self.empty_state_label)
+        devices_layout.addWidget(self.empty_state_label)
 
         self.device_list = QListWidget(self)
-        self.device_list.setMaximumHeight(160)
-        main_layout.addWidget(self.device_list)
+        self.device_list.setMaximumHeight(130)
+        devices_layout.addWidget(self.device_list)
+        pairing_layout.addWidget(devices_card)
+
+        self.tabs.addTab(pairing_tab, "📱 Mobil Eşleştirme")
+
+        # ---- Tab 3: Sistem & Ayarlar (Settings) ----
+        settings_tab = QWidget()
+        settings_layout = QVBoxLayout(settings_tab)
+        settings_layout.setContentsMargins(14, 14, 14, 14)
+        settings_layout.setSpacing(12)
+
+        config_card = QFrame(self)
+        config_card.setObjectName("card")
+        cfg_layout = QVBoxLayout(config_card)
+        cfg_layout.setSpacing(8)
+
+        cfg_title = QLabel("SİSTEM YAPILANDIRMASI", self)
+        cfg_title.setObjectName("sectionTitle")
+        cfg_layout.addWidget(cfg_title)
+
+        net_desc = QLabel(
+            f"• Yerel IP: {self.lan_ip}\n"
+            f"• HTTP & WebSocket Portu: {self.port}\n"
+            f"• Güvenlik Modeli: Zero-Trust Session Token & One-Time Token (OTT)\n"
+            f"• LCU Bağlantı Türü: Resmi REST API & WebSocket (HTTPX / SSL By-Pass)\n"
+            f"• Mimari Model: Hexagonal Architecture (ADR-0003)\n"
+            f"• Riot TOS Uyumluluğu: Belleğe müdahale edilmez (%100 Güvenli)",
+            self,
+        )
+        net_desc.setObjectName("subtitle")
+        cfg_layout.addWidget(net_desc)
+        settings_layout.addWidget(config_card)
+
+        about_card = QFrame(self)
+        about_card.setObjectName("card")
+        about_layout = QVBoxLayout(about_card)
+        about_layout.setSpacing(6)
+        about_title = QLabel("RIFTPILOT HAKKINDA", self)
+        about_title.setObjectName("sectionTitle")
+        about_layout.addWidget(about_title)
+        about_text = QLabel(
+            "RiftPilot, League of Legends istemcisini yerel ağ üzerinden mobil cihazınızdan "
+            "kolayca yönetmenizi sağlayan modern ve hafif masaüstü orkestrasyon aracıdır.\n"
+            "Sürüm: 0.3.0 (Milestone 3: Modern UI Edition)",
+            self,
+        )
+        about_text.setObjectName("subtitle")
+        about_layout.addWidget(about_text)
+        settings_layout.addWidget(about_card)
+
+        settings_layout.addStretch()
+        self.tabs.addTab(settings_tab, "⚙️ Ayarlar")
+
+        main_layout.addWidget(self.tabs)
 
     def _on_poll_tick(self) -> None:
         """Periodic sync for active device sessions and connection status."""
@@ -339,6 +529,9 @@ class MainWindow(QMainWindow):
         self.device_list.clear()
         active_sessions = self.session_manager.list_active_sessions()
 
+        if hasattr(self, "active_count_label"):
+            self.active_count_label.setText(f"📱 Bağlı Cihaz: {len(active_sessions)}")
+
         if not active_sessions:
             self.empty_state_label.show()
             self.device_list.hide()
@@ -349,13 +542,11 @@ class MainWindow(QMainWindow):
 
         for session in active_sessions:
             item = QListWidgetItem()
-            # Store device name in item text for inspection / accessibility
             item.setText(session.device_name)
 
-            # Custom row widget with revoke button
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(8, 4, 8, 4)
+            row_layout.setContentsMargins(10, 6, 10, 6)
 
             name_lbl = QLabel(f"📱 {session.device_name}", row_widget)
             font = QFont()
@@ -366,7 +557,6 @@ class MainWindow(QMainWindow):
 
             revoke_btn = QPushButton("Yetkiyi Kaldır", row_widget)
             revoke_btn.setObjectName("revokeBtn")
-            # Capture session_token in closure
             token = session.session_token
             revoke_btn.clicked.connect(lambda _, t=token: self.revoke_session(t))
             row_layout.addWidget(revoke_btn)
@@ -383,11 +573,9 @@ class MainWindow(QMainWindow):
 
     def revoke_device(self, session_token_or_client_id: str) -> bool:
         """Alias / helper to revoke by session token or client id."""
-        # First attempt by token
         if self.session_manager.revoke_session(session_token_or_client_id):
             self.update_device_list()
             return True
-        # Then attempt by device id
         result = self.session_manager.revoke_device(session_token_or_client_id)
         self.update_device_list()
         return result

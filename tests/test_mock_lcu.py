@@ -247,6 +247,12 @@ class TestILcuPortContract:
             "get_grid_champions",
             "subscribe_champ_select",
             "unsubscribe_champ_select",
+            "set_summoner_spells",
+            "get_current_rune_page",
+            "apply_rune_page",
+            "get_game_mode_context",
+            "get_available_summoner_spells",
+            "get_recommended_rune_pages",
             "simulate_connect",
             "simulate_disconnect",
             "simulate_phase_change",
@@ -807,4 +813,118 @@ class TestMockLcuChampSelect:
         await mock_lcu.simulate_connect()
         await mock_lcu.simulate_champ_select_session(ChampSelectSession())
         assert len(calls) == 0
+
+
+# ============================================================================
+# 8. Runes & Summoner Spells Tests
+# ============================================================================
+
+
+class TestMockLcuRunesAndSpells:
+    """Verifies summoner spells and runes handling on MockLcuAdapter."""
+
+    @pytest.mark.asyncio
+    async def test_set_summoner_spells_disconnected_returns_false(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Setting summoner spells when disconnected should fail."""
+        res = await mock_lcu.set_summoner_spells(4, 14)
+        assert res is False
+
+    @pytest.mark.asyncio
+    async def test_set_summoner_spells_connected(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Setting summoner spells when connected updates internal state."""
+        await mock_lcu.simulate_connect()
+        res = await mock_lcu.set_summoner_spells(4, 14)
+        assert res is True
+        assert mock_lcu.spell1_id == 4
+        assert mock_lcu.spell2_id == 14
+
+    @pytest.mark.asyncio
+    async def test_set_summoner_spells_updates_champ_select_session(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Setting spells in an active champ select session updates the local player."""
+        from riftpilot.core.champ_select import ChampSelectPlayer, ChampSelectSession
+
+        await mock_lcu.simulate_connect()
+        session = ChampSelectSession(
+            local_player_cell_id=0,
+            my_team=[ChampSelectPlayer(cell_id=0, summoner_id=123)],
+        )
+        await mock_lcu.simulate_champ_select_session(session)
+
+        res = await mock_lcu.set_summoner_spells(12, 4)
+        assert res is True
+        current_session = await mock_lcu.get_champ_select_session()
+        assert current_session is not None
+        local_p = current_session.get_local_player()
+        assert local_p is not None
+        assert local_p.spell1_id == 12
+        assert local_p.spell2_id == 4
+
+    @pytest.mark.asyncio
+    async def test_get_current_rune_page(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Getting rune page when disconnected returns None, connected returns default."""
+        assert await mock_lcu.get_current_rune_page() is None
+
+        await mock_lcu.simulate_connect()
+        page = await mock_lcu.get_current_rune_page()
+        assert page is not None
+        assert page.name == "RiftPilot Rün Sayfası"
+
+    @pytest.mark.asyncio
+    async def test_apply_rune_page(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Applying rune page updates current active page."""
+        from riftpilot.core.runes_spells import RunePage
+
+        custom_page = RunePage(
+            name="Elektrik Ver",
+            primary_style_id=8100,
+            sub_style_id=8200,
+            selected_perk_ids=[8112, 8143, 8138, 8106, 8226, 8233, 5008, 5008, 5003],
+        )
+
+        assert await mock_lcu.apply_rune_page(custom_page) is False
+
+        await mock_lcu.simulate_connect()
+        assert await mock_lcu.apply_rune_page(custom_page) is True
+        current = await mock_lcu.get_current_rune_page()
+        assert current is not None
+        assert current.name == "Elektrik Ver"
+        assert current.primary_style_id == 8100
+        assert current.selected_perk_ids == custom_page.selected_perk_ids
+
+    @pytest.mark.asyncio
+    async def test_get_recommended_rune_pages_and_mode_spells(
+        self, mock_lcu: MockLcuAdapter
+    ) -> None:
+        """Retrieves up to 3 official recommended rune pages and mode-filtered spells."""
+        from riftpilot.core.game_mode import GameModeContext
+
+        await mock_lcu.simulate_connect()
+        pages = await mock_lcu.get_recommended_rune_pages(103, position="MIDDLE", map_id=11)
+        assert len(pages) == 3
+        assert pages[0].champion_id == 103
+        assert pages[0].primary_style_id > 0
+
+        # When client has no recommendations for a champion, returns empty list (no fake data)
+        mock_lcu.set_recommended_rune_pages(99999, [])
+        empty_pages = await mock_lcu.get_recommended_rune_pages(99999)
+        assert empty_pages == []
+
+        # Mode-filtered summoner spells in ARAM reject Teleport (12)
+        mock_lcu.set_game_mode_context(GameModeContext(game_mode="ARAM", queue_id=450, map_id=12))
+        aram_spells = await mock_lcu.get_available_summoner_spells()
+        aram_ids = {s.id for s in aram_spells}
+        assert 32 in aram_ids
+        assert 12 not in aram_ids
+        assert await mock_lcu.set_summoner_spells(12, 4) is False
+        assert await mock_lcu.set_summoner_spells(32, 4) is True
 
