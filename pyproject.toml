@@ -37,6 +37,9 @@ dev = [
     "pytest-asyncio>=0.24.0",
 ]
 
+[project.scripts]
+riftpilot = "riftpilot.desktop_app:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

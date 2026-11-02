@@ -145,15 +145,18 @@ python -m venv .venv
 # 3. Bağımlılıkları geliştirici modunda yükleyin
 pip install -e ".[dev]"
 
-# 4. Masaüstü uygulamasını başlatın
-python -m riftpilot.desktop_app
+# 4. Masaüstü uygulamasını başlatın (alternatiflerden biriyle):
+python run.py                     # En pratik başlatıcı (Doğrudan çalıştırma)
+python -m riftpilot               # Modül olarak çalıştırma
+python run.py --mock              # LoL açık değilse simüle test moduyla çalıştırma
+python run.py --headless          # Yalnızca mobil web sunucusunu çalıştırma (GUI olmadan)
 ```
 
 ---
 
 ## 🧪 Testleri Çalıştırma
 
-RiftPilot, League of Legends istemcisinin açık olmasına gerek kalmadan test edilebilir. 391 testin tamamı mock LCU adaptörleri ve HTTPX mock taşımalarıyla saniyeler içinde koşar:
+RiftPilot, League of Legends istemcisinin açık olmasına gerek kalmadan test edilebilir. 395 testin tamamı mock LCU adaptörleri ve HTTPX mock taşımalarıyla saniyeler içinde koşar:
 
 ```powershell
 # Tüm birim ve entegrasyon testlerini çalıştırın
